@@ -1,0 +1,787 @@
+basePath: /api
+definitions:
+  domain.Role:
+    enum:
+    - owner
+    - requester
+    type: string
+    x-enum-varnames:
+    - RoleOwner
+    - RoleRequester
+  dto.AuthResponse:
+    properties:
+      token:
+        type: string
+      user:
+        $ref: '#/definitions/dto.UserResponse'
+    type: object
+  dto.CreateRentalRequest:
+    properties:
+      end_date:
+        example: "2026-06-25T18:00:00Z"
+        type: string
+      start_date:
+        example: "2026-06-20T09:00:00Z"
+        type: string
+      tool_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+    required:
+    - end_date
+    - start_date
+    - tool_id
+    type: object
+  dto.CreateToolRequest:
+    properties:
+      category:
+        example: Construcción
+        type: string
+      daily_rate:
+        example: 50
+        type: number
+      description:
+        example: Taladro percutor ideal para concreto
+        type: string
+      estimated_value:
+        example: 2500
+        type: number
+      name:
+        example: Taladro Bosch 800W
+        maxLength: 150
+        minLength: 2
+        type: string
+    required:
+    - daily_rate
+    - estimated_value
+    - name
+    type: object
+  dto.ErrResponse:
+    properties:
+      error:
+        example: mensaje de error
+        type: string
+    type: object
+  dto.LoginRequest:
+    properties:
+      email:
+        example: maria@ejemplo.com
+        type: string
+      password:
+        example: segura123
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  dto.MsgResponse:
+    properties:
+      message:
+        example: operación exitosa
+        type: string
+    type: object
+  dto.RegisterRequest:
+    properties:
+      email:
+        example: maria@ejemplo.com
+        type: string
+      name:
+        example: María López
+        maxLength: 100
+        minLength: 2
+        type: string
+      password:
+        example: segura123
+        minLength: 8
+        type: string
+      role:
+        allOf:
+        - $ref: '#/definitions/domain.Role'
+        enum:
+        - owner
+        - requester
+        example: owner
+    required:
+    - email
+    - name
+    - password
+    - role
+    type: object
+  dto.RentalResponse:
+    properties:
+      created_at:
+        type: string
+      daily_rate:
+        type: number
+      end_date:
+        type: string
+      id:
+        type: string
+      owner_confirmed_delivery:
+        description: Estado del apretón de manos en entrega
+        type: boolean
+      owner_confirmed_return:
+        type: boolean
+      owner_id:
+        type: string
+      requester_confirmed_delivery:
+        type: boolean
+      requester_confirmed_return:
+        description: Estado del apretón de manos en devolución
+        type: boolean
+      requester_id:
+        type: string
+      start_date:
+        type: string
+      status:
+        type: string
+      tool_id:
+        type: string
+      total_amount:
+        type: number
+      updated_at:
+        type: string
+    type: object
+  dto.ToolResponse:
+    properties:
+      category:
+        type: string
+      created_at:
+        type: string
+      daily_rate:
+        type: number
+      description:
+        type: string
+      estimated_value:
+        type: number
+      id:
+        type: string
+      is_available:
+        type: boolean
+      name:
+        type: string
+      owner_id:
+        type: string
+      photo_url:
+        type: string
+      suggested_min_daily_rate:
+        type: number
+      updated_at:
+        type: string
+    type: object
+  dto.UpdateToolRequest:
+    properties:
+      category:
+        type: string
+      daily_rate:
+        type: number
+      description:
+        type: string
+      estimated_value:
+        type: number
+      is_available:
+        type: boolean
+      name:
+        maxLength: 150
+        minLength: 2
+        type: string
+    type: object
+  dto.UserResponse:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      role:
+        type: string
+    type: object
+  input.PricingSuggestion:
+    properties:
+      description:
+        type: string
+      estimated_value:
+        type: number
+      minimum_daily_rate:
+        type: number
+      suggested_daily_rate:
+        type: number
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: angelchame6@gmail.com
+    name: Angel Chame
+  description: |-
+    API de renta de herramientas con aceptación mutua (apretón de manos digital).
+
+    ## Flujo de renta
+    1. Propietario registra herramienta con precio
+    2. Solicitante solicita renta → estado **pending**
+    3. Ambos llaman `/confirm-delivery` → estado **active**
+    4. Ambos llaman `/confirm-return` → estado **completed** (fondos liberados)
+  title: Tool Rental API
+  version: "1.0"
+paths:
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Autentica al usuario y devuelve un JWT para usar en endpoints protegidos
+      parameters:
+      - description: Credenciales
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/dto.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.AuthResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "401":
+          description: Credenciales inválidas
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+      summary: Iniciar sesión
+      tags:
+      - auth
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      description: Crea una cuenta de Propietario (owner) o Solicitante (requester)
+        y devuelve un JWT
+      parameters:
+      - description: Datos de registro
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/dto.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/dto.AuthResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "409":
+          description: Email ya registrado
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+      summary: Registrar usuario
+      tags:
+      - auth
+  /owner/tools:
+    get:
+      description: Lista las herramientas del propietario autenticado
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/dto.ToolResponse'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+      security:
+      - BearerAuth: []
+      summary: Mis herramientas
+      tags:
+      - herramientas
+  /pricing:
+    get:
+      description: Calcula el precio diario mínimo sugerido basado en el valor estimado
+        de la herramienta (50% del valor en 30 días)
+      parameters:
+      - description: Valor estimado de la herramienta
+        example: 1000
+        in: query
+        name: estimated_value
+        required: true
+        type: number
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/input.PricingSuggestion'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+      summary: Precio sugerido
+      tags:
+      - herramientas
+  /rentals:
+    get:
+      description: Lista todas las rentas donde el usuario es propietario o solicitante
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/dto.RentalResponse'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+      security:
+      - BearerAuth: []
+      summary: Mis rentas
+      tags:
+      - rentas
+    post:
+      consumes:
+      - application/json
+      description: 'El solicitante crea una solicitud de renta. La herramienta queda
+        reservada (estado: pending)'
+      parameters:
+      - description: Datos de la renta
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreateRentalRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/dto.RentalResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "404":
+          description: Herramienta no encontrada
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "409":
+          description: Herramienta no disponible
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+      security:
+      - BearerAuth: []
+      summary: Solicitar renta
+      tags:
+      - rentas
+  /rentals/{id}:
+    delete:
+      description: Cancela una renta pendiente o activa. Libera la herramienta automáticamente
+      parameters:
+      - description: UUID de la renta
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.RentalResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "409":
+          description: No se puede cancelar una renta completada
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+      security:
+      - BearerAuth: []
+      summary: Cancelar renta
+      tags:
+      - rentas
+    get:
+      description: Devuelve el estado completo de una renta, incluyendo el estado
+        del apretón de manos
+      parameters:
+      - description: UUID de la renta
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.RentalResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+      security:
+      - BearerAuth: []
+      summary: Detalle de renta
+      tags:
+      - rentas
+  /rentals/{id}/confirm-delivery:
+    post:
+      description: 'Paso 2: propietario Y solicitante deben llamar este endpoint para
+        confirmar la entrega física. Cuando ambos confirman → estado pasa a "active"'
+      parameters:
+      - description: UUID de la renta
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.RentalResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "403":
+          description: No eres parte de esta renta
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "409":
+          description: Ya confirmaste o la renta no está en estado pending
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+      security:
+      - BearerAuth: []
+      summary: Confirmar entrega (apretón de manos)
+      tags:
+      - rentas
+  /rentals/{id}/confirm-return:
+    post:
+      description: 'Paso 3: propietario Y solicitante deben confirmar la devolución
+        física. Cuando ambos confirman → estado pasa a "completed" y se liberan los
+        fondos'
+      parameters:
+      - description: UUID de la renta
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.RentalResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "409":
+          description: Ya confirmaste o la renta no está activa
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+      security:
+      - BearerAuth: []
+      summary: Confirmar devolución (apretón de manos)
+      tags:
+      - rentas
+  /tools:
+    get:
+      description: Lista todas las herramientas. Acepta filtros por disponibilidad,
+        categoría y búsqueda por nombre
+      parameters:
+      - description: Solo herramientas disponibles
+        in: query
+        name: available
+        type: boolean
+      - description: Filtrar por categoría
+        in: query
+        name: category
+        type: string
+      - description: Buscar por nombre o descripción
+        in: query
+        name: search
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/dto.ToolResponse'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+      summary: Catálogo de herramientas
+      tags:
+      - herramientas
+    post:
+      consumes:
+      - application/json
+      description: Crea una nueva herramienta. El precio diario mínimo se calcula
+        automáticamente (50% del valor estimado en 30 días)
+      parameters:
+      - description: Datos de la herramienta
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreateToolRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/dto.ToolResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+      security:
+      - BearerAuth: []
+      summary: Registrar herramienta
+      tags:
+      - herramientas
+  /tools/{id}:
+    delete:
+      description: Elimina una herramienta. Solo el propietario dueño puede hacerlo
+      parameters:
+      - description: UUID de la herramienta
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.MsgResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+      security:
+      - BearerAuth: []
+      summary: Eliminar herramienta
+      tags:
+      - herramientas
+    get:
+      description: Devuelve los datos de una herramienta incluyendo precio sugerido
+      parameters:
+      - description: UUID de la herramienta
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.ToolResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+      summary: Detalle de herramienta
+      tags:
+      - herramientas
+    put:
+      consumes:
+      - application/json
+      description: Modifica los campos de una herramienta. Solo el propietario dueño
+        puede hacerlo
+      parameters:
+      - description: UUID de la herramienta
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Campos a actualizar
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UpdateToolRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.ToolResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+      security:
+      - BearerAuth: []
+      summary: Actualizar herramienta
+      tags:
+      - herramientas
+  /tools/{id}/photo:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Sube una foto desde la cámara o galería. Enviar como multipart/form-data
+        con el campo "photo"
+      parameters:
+      - description: UUID de la herramienta
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Archivo de imagen
+        in: formData
+        name: photo
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.ToolResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrResponse'
+      security:
+      - BearerAuth: []
+      summary: Subir foto de herramienta
+      tags:
+      - herramientas
+securityDefinitions:
+  BearerAuth:
+    description: 'Pegar el token así: **Bearer &lt;token&gt;**'
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
