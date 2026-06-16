@@ -75,11 +75,24 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	// Convertir strings opcionales a punteros (solo si no están vacíos)
+	var phone, ineNumber *string
+	if req.Phone != "" {
+		p := req.Phone
+		phone = &p
+	}
+	if req.IneNumber != "" {
+		i := req.IneNumber
+		ineNumber = &i
+	}
+
 	user := &model.User{
-		Name:     req.Name,
-		Email:    req.Email,
-		Password: string(hashedPassword),
-		Role:     req.Role,
+		Name:      req.Name,
+		Email:     req.Email,
+		Password:  string(hashedPassword),
+		Role:      req.Role,
+		Phone:     phone,
+		IneNumber: ineNumber,
 	}
 
 	created, err := h.userRepo.Create(c.Request.Context(), user)

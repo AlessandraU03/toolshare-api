@@ -27,9 +27,9 @@ func NewUserRepository(db *pgxpool.Pool) *UserRepository {
 // Retorna el usuario creado con su ID y timestamps asignados por PostgreSQL.
 func (r *UserRepository) Create(ctx context.Context, user *model.User) (*model.User, error) {
 	query := `
-		INSERT INTO users (name, email, password, role)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, name, email, role, created_at, updated_at
+		INSERT INTO users (name, email, password, role, phone, ine_number)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, name, email, role, phone, ine_number, created_at, updated_at
 	`
 	created := &model.User{}
 	err := r.db.QueryRow(ctx, query,
@@ -37,11 +37,15 @@ func (r *UserRepository) Create(ctx context.Context, user *model.User) (*model.U
 		user.Email,
 		user.Password,
 		user.Role,
+		user.Phone,
+		user.IneNumber,
 	).Scan(
 		&created.ID,
 		&created.Name,
 		&created.Email,
 		&created.Role,
+		&created.Phone,
+		&created.IneNumber,
 		&created.CreatedAt,
 		&created.UpdatedAt,
 	)
@@ -55,7 +59,7 @@ func (r *UserRepository) Create(ctx context.Context, user *model.User) (*model.U
 // Retorna ErrNotFound si no existe, para distinguirlo de errores de BD.
 func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*model.User, error) {
 	query := `
-		SELECT id, name, email, password, role, created_at, updated_at
+		SELECT id, name, email, password, role, phone, ine_number, created_at, updated_at
 		FROM users
 		WHERE email = $1
 	`
@@ -66,6 +70,8 @@ func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*model.
 		&user.Email,
 		&user.Password,
 		&user.Role,
+		&user.Phone,
+		&user.IneNumber,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)
@@ -81,7 +87,7 @@ func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*model.
 // FindByID busca un usuario por su UUID.
 func (r *UserRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.User, error) {
 	query := `
-		SELECT id, name, email, role, created_at, updated_at
+		SELECT id, name, email, role, phone, ine_number, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`
@@ -91,6 +97,8 @@ func (r *UserRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Use
 		&user.Name,
 		&user.Email,
 		&user.Role,
+		&user.Phone,
+		&user.IneNumber,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)

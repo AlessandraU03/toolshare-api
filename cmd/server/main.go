@@ -41,11 +41,13 @@ func main() {
 	// -----------------------------------------------------------------
 	// 3. Instanciar repositorios y handlers (inyección de dependencias manual)
 	// -----------------------------------------------------------------
-	userRepo := repository.NewUserRepository(database.DB)
-	toolRepo := repository.NewToolRepository(database.DB)
+	userRepo   := repository.NewUserRepository(database.DB)
+	toolRepo   := repository.NewToolRepository(database.DB)
+	rentalRepo := repository.NewRentalRepository(database.DB)
 
-	authHandler := handler.NewAuthHandler(userRepo)
-	toolHandler := handler.NewToolHandler(toolRepo)
+	authHandler   := handler.NewAuthHandler(userRepo)
+	toolHandler   := handler.NewToolHandler(toolRepo)
+	rentalHandler := handler.NewRentalHandler(rentalRepo, toolRepo)
 
 	// -----------------------------------------------------------------
 	// 4. Configurar el router Gin
@@ -60,9 +62,12 @@ func main() {
 	router.Use(gin.Logger())   // Log de cada request
 	router.Use(gin.Recovery()) // Recuperar de panics sin caer el servidor
 
+	// Servir archivos estáticos de uploads (fotos de herramientas)
+	router.Static("/uploads", "./uploads")
+
 	// Endpoint de salud — útil para health checks en Docker/K8s
 	router.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "timestamp": time.Now().UTC()})
 	})
 
 	// -----------------------------------------------------------------
@@ -83,6 +88,12 @@ func main() {
 			// GET /api/tools — Público: cualquiera puede ver el catálogo
 			toolsGroup.GET("", toolHandler.GetTools)
 
+			// GET /api/tools/suggest-price — Requiere autenticación
+			toolsGroup.GET("/suggest-price",
+				middleware.RequireAuth(),
+				toolHandler.SuggestPrice,
+			)
+
 			// Rutas protegidas: requieren JWT válido + rol "owner"
 			ownerRoutes := toolsGroup.Group("")
 			ownerRoutes.Use(
@@ -90,10 +101,33 @@ func main() {
 				middleware.RequireRole(model.RoleOwner),
 			)
 			{
+				// GET /api/tools/mine — solo las herramientas del propietario autenticado
+				// ⚠️ Debe registrarse ANTES de /:id para evitar que Gin lo interprete como UUID
+				ownerRoutes.GET("/mine", toolHandler.GetMyTools)
+
 				ownerRoutes.POST("", toolHandler.CreateTool)
 				ownerRoutes.PUT("/:id", toolHandler.UpdateTool)
 				ownerRoutes.DELETE("/:id", toolHandler.DeleteTool)
+				ownerRoutes.POST("/:id/photo", toolHandler.UploadPhoto)
 			}
+		}
+
+		// --- Rentas (checkout flow) ---
+		// Todas las rutas de rentas requieren JWT válido
+		rentalsGroup := api.Group("/rentals")
+		rentalsGroup.Use(middleware.RequireAuth())
+		{
+			// POST /api/rentals — Crear orden de renta (solo solicitantes)
+			rentalsGroup.POST("", rentalHandler.CreateRental)
+
+			// POST /api/rentals/:rental_id/payment — Confirmar pago / retener fondos
+			rentalsGroup.POST("/:rental_id/payment", rentalHandler.ConfirmPayment)
+
+			// POST /api/rentals/:rental_id/confirm-delivery — Confirmar entrega (GPS)
+			rentalsGroup.POST("/:rental_id/confirm-delivery", rentalHandler.ConfirmDelivery)
+
+			// POST /api/rentals/:rental_id/return — Aceptar/rechazar devolución (propietario)
+			rentalsGroup.POST("/:rental_id/return", rentalHandler.ProcessReturn)
 		}
 	}
 
@@ -106,7 +140,6 @@ func main() {
 
 	// -----------------------------------------------------------------
 	// 6. Arrancar el servidor HTTP con graceful shutdown
-	//    Espera hasta 10 segundos a que terminen los requests activos.
 	// -----------------------------------------------------------------
 	port := os.Getenv("SERVER_PORT")
 	if port == "" {
@@ -114,22 +147,20 @@ func main() {
 	}
 
 	srv := &http.Server{
-		Addr:         ":" + port,
+		Addr:         "0.0.0.0:" + port,
 		Handler:      router,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Arrancar el servidor en una goroutine separada
 	go func() {
-		log.Printf("🚀 Servidor escuchando en http://localhost:%s", port)
+		log.Printf("🚀 Servidor escuchando en http://0.0.0.0:%s", port)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("❌ Error al iniciar el servidor: %v", err)
 		}
 	}()
 
-	// Esperar señal de cierre (Ctrl+C o SIGTERM de Docker/K8s)
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
