@@ -1,222 +1,148 @@
-# Tool Inventory API 🔧
+# ToolShare Backend API 🔧
 
-API RESTful en Go para gestión de inventario y préstamo de herramientas.
-Construida con **Gin**, **pgx** y **JWT**.
+API RESTful en Go estructurada bajo **Arquitectura Hexagonal Vertical Slicing**, diseñada para la gestión de inventario, préstamo de herramientas de construcción con apretón de manos digital transaccional, y valuación automática con Inteligencia Artificial.
+
+Construida con **Gin**, **pgx/v5** y **JWT**.
 
 ---
 
-## Estructura del Proyecto
+## Arquitectura y Flujo Completo de la Aplicación
+
+El ecosistema de **ToolShare** está compuesto por tres componentes principales:
+1. **Frontend (Flutter)**: Aplicación móvil que interactúa con el usuario final, captura coordenadas GPS reales y toma fotografías del desgaste físico de las herramientas.
+2. **Backend (Go API)**: Orquestador transaccional y pasarela de seguridad. Administra la lógica de negocio, persiste información en PostgreSQL, valida suscripciones Pro y actúa de proxy seguro con el microservicio de IA.
+3. **Microservicio de ML (Python - FastAPI)**: Contiene el modelo de clasificación de imágenes (Random Forest/Redes Neuronales) para determinar el nivel de desgaste físico de la herramienta y realiza web scraping en tiempo real de Mercado Libre para valuar y sugerir precios justos de renta.
+
+```mermaid
+graph TD
+    Flutter[App Flutter] -->|POST /auth/register| GoAPI[Backend Go API :8080]
+    Flutter -->|POST /tools/predict-condition| GoAPI
+    Flutter -->|GET /tools/auto-valuate| GoAPI
+    GoAPI -->|Proxy POST /predict-condition| PythonML[Microservicio ML Python :8000]
+    GoAPI -->|Proxy GET /auto-valuate| PythonML
+    PythonML -->|Scraping / API| MercadoLibre[Mercado Libre API]
+    GoAPI -->|Queries SQL| PostgreSQL[(PostgreSQL :5432)]
+```
+
+---
+
+## Estructura del Proyecto (Slicing Vertical)
 
 ```
-tool-inventory-api/
+Api_Apptransacional/
 ├── cmd/
 │   └── server/
-│       └── main.go              # Punto de entrada: router, servidor HTTP
+│       └── main.go              # Punto de entrada (inicialización y Graceful Shutdown)
 ├── internal/
-│   ├── auth/
-│   │   └── jwt.go               # Generación y validación de tokens JWT
-│   ├── database/
-│   │   └── database.go          # Conexión y pool pgxpool
-│   ├── handler/
-│   │   ├── auth_handler.go      # POST /register, POST /login
-│   │   └── tool_handler.go      # CRUD de herramientas
-│   ├── middleware/
-│   │   └── auth.go              # RequireAuth y RequireRole
-│   ├── model/
-│   │   └── model.go             # Structs: User, Tool, DTOs
-│   └── repository/
-│       ├── user_repository.go   # Queries SQL de usuarios
-│       └── tool_repository.go   # Queries SQL de herramientas
+│   ├── tool/                    # Slice Vertical de Herramientas
+│   │   ├── domain/              # Modelos de dominio lógicos (Tool, GPS)
+│   │   ├── ports/               # Interfaces de servicios y repositorios (Puertos)
+│   │   ├── postgres/            # Implementación física del repositorio SQL
+│   │   ├── service/             # Lógica de negocio (Autovaluación, ML Proxy)
+│   │   └── handler/             # Controladores Gin y DTOs de Request/Response
+│   ├── user/                    # Slice Vertical de Usuarios (Registro, Login, Planes)
+│   ├── rental/                  # Slice Vertical de Alquileres (Contratos, Handshake)
+│   ├── shared/                  # Utilidades compartidas (Middleware de Auth, Router, DB Pool)
 ├── migrations/
-│   └── 001_initial_schema.sql   # Tablas, índices y seed data
-├── scripts/
-│   └── setup.sh                 # Script de configuración inicial
-├── .env.example                 # Plantilla de variables de entorno
-├── go.mod
+│   └── schema.sql               # Script unificado de base de datos
+├── uploads/                     # Carpeta local para almacenar imágenes de herramientas
+├── .env.example                 # Variables de entorno de plantilla
 └── README.md
 ```
 
 ---
 
-## Instalación paso a paso (Terminal integrada de VS Code)
+## Flujos Clave de Negocio
 
-### Requisitos previos
-- Go 1.22 o superior: https://go.dev/dl/
-- PostgreSQL 14 o superior corriendo localmente
+### 1. Registro e Identificación Segura
+* El registro de usuarios (`/api/auth/register`) requiere obligatoriamente **Nombre**, **Correo**, **Contraseña**, **Teléfono** (10 dígitos) y **Clave de Elector / INE**.
+* Las contraseñas se almacenan de forma segura utilizando encriptación unidireccional con **bcrypt** (cost = 12).
 
-### 1. Crear la base de datos en PostgreSQL
+### 2. Clasificación de Desgaste por Fotografía (ML)
+* El usuario toma una foto de la herramienta desde Flutter. La app envía la imagen binaria (`multipart/form-data`) al endpoint de Go `/api/tools/predict-condition`.
+* El backend de Go actúa de intermediario y reenvía el archivo al microservicio de Python (`:8000/predict-condition`), el cual responde con la clase predicha (`nuevo`, `uso_moderado` o `viejo_desgastado`) y su puntaje de confianza.
+* El frontend de Flutter recibe esta clasificación y selecciona automáticamente el nivel de condición física en el formulario (`Nuevo`, `Buen Estado` o `Desgastado`).
 
-Abre una terminal y ejecuta:
+### 3. Valuación y Sugerencia de Precios (Mercado Libre)
+* Al ingresar el nombre, marca, modelo y categoría de la herramienta, se dispara una petición a `/api/tools/auto-valuate`.
+* El microservicio de Python realiza búsquedas en Mercado Libre, procesa los precios con modelos de regresión y calcula:
+  * **Valor Estimado de Catálogo** (`estimated_value`): El precio promedio actual del producto en el mercado.
+  * **Tarifa de Renta Diaria Sugerida** (`suggested_daily_rate`): Tarifa recomendada calculada mediante IA.
+  * **Precio Mínimo de Renta** (`minimum_daily_rate`): Tarifa mínima correspondiente al 50% de recuperación del valor estimado prorrateado a 30 días.
+* Si el **Valor Estimado** de la herramienta supera los **$1,500 MXN**, el backend de Go restringe la publicación solo a usuarios con plan **Pro** activo (`is_pro = true`).
 
+### 4. Apretón de Manos Digital Transaccional (Handshake)
+El flujo de alquiler de herramientas es un contrato de mutua aceptación digital:
+1. **Solicitud (`pending`)**: El solicitante pide una herramienta. Se realiza una pre-autorización de fondos (garantía) mediante Mercado Pago.
+2. **Entrega (`active`)**: Tanto el propietario como el solicitante deben confirmar la entrega física desde sus aplicaciones. Al completarse la doble confirmación, el servidor genera un **hash SHA-256** del contrato legal inmutable y captura las **coordenadas GPS** exactas de la entrega. El estado pasa a `active`.
+3. **Devolución / Disputa (`completed` / `disputed`)**: 
+   * Si el propietario confirma que la herramienta regresó en buen estado, se liberan los fondos de garantía y la transacción pasa a `completed`.
+   * Si hay inconformidad, la transacción entra en estado de `disputed` (arbitraje) reteniendo la garantía para cubrir reposición.
+
+---
+
+## Instalación y Configuración del Servidor
+
+### Requisitos Previos
+- **Go 1.22** o superior instalado en la computadora.
+- **PostgreSQL 14** o superior corriendo localmente.
+- **Python 3.10+** (para correr el microservicio de IA localmente en el puerto `8000`).
+
+### 1. Inicializar la Base de Datos
+Abre tu consola de PostgreSQL y ejecuta:
+```sql
+CREATE DATABASE tool_inventory;
+```
+Aplica el script unificado de base de datos ubicado en la carpeta de migraciones:
 ```bash
-psql -U postgres -c "CREATE DATABASE tool_inventory;"
+psql -U postgres -d tool_inventory -f migrations/schema.sql
 ```
 
-### 2. Clonar / abrir el proyecto en VS Code
-
-Si empiezas desde cero con este código:
+### 2. Configurar Variables de Entorno
+Copia el archivo `.env.example` a `.env` en la raíz de `Api_Apptransacional`:
 ```bash
-# Crea la carpeta y entra en ella
-mkdir tool-inventory-api && cd tool-inventory-api
-# Copia todos los archivos del proyecto aquí
-code .   # Abre VS Code en esta carpeta
-```
-
-### 3. Abrir la terminal integrada de VS Code
-
-`Ctrl + `` ` (acento grave) o menú **Terminal → New Terminal**
-
-### 4. Inicializar el módulo Go
-
-```bash
-# Inicializa el módulo (ya incluido en go.mod, pero si lo haces desde cero):
-go mod init github.com/yourusername/tool-inventory-api
-
-# Instala todas las dependencias declaradas en go.mod:
-go mod tidy
-```
-
-Dependencias que se instalarán automáticamente:
-- `github.com/gin-gonic/gin` — Router HTTP
-- `github.com/golang-jwt/jwt/v5` — Tokens JWT
-- `github.com/google/uuid` — UUIDs v4
-- `github.com/jackc/pgx/v5` — Driver PostgreSQL de alto rendimiento
-- `github.com/joho/godotenv` — Cargar variables desde .env
-- `golang.org/x/crypto` — bcrypt para contraseñas
-
-### 5. Configurar las variables de entorno
-
-```bash
-# Copiar la plantilla
 cp .env.example .env
 ```
-
-Edita `.env` con tus datos reales:
+Asegúrate de editar tu `.env` con tus credenciales de PostgreSQL:
 ```env
 SERVER_PORT=8080
-DATABASE_URL=postgres://postgres:TU_CONTRASEÑA@localhost:5432/tool_inventory?sslmode=disable
-JWT_SECRET=una_clave_secreta_muy_larga_minimo_32_caracteres
+DATABASE_URL=postgres://tu_usuario:tu_contraseña@localhost:5432/tool_inventory?sslmode=disable
+JWT_SECRET=UnAcAdEnAaLeAtOrIaYSeGuRaDeMaYaSDe32ChArS
 JWT_EXPIRATION=24h
 ```
 
-### 6. Aplicar la migración SQL
-
+### 3. Compilar y Ejecutar el Servidor Go
+Instala las dependencias y compila el ejecutable estático:
 ```bash
-psql -U postgres -d tool_inventory -f migrations/001_initial_schema.sql
+go mod tidy
+go build -o server.exe cmd/server/main.go
 ```
-
-> El script crea las tablas `users` y `tools`, los índices, triggers
-> y dos usuarios de prueba con contraseña `password123`.
-
-### 7. Levantar el servidor
-
+Para iniciar el servidor, ejecuta:
 ```bash
-go run ./cmd/server/main.go
+.\server.exe
 ```
-
-Deberías ver:
+El servidor arrancará e imprimirá en consola:
 ```
-✅ Conexión a PostgreSQL establecida correctamente
-🚀 Servidor escuchando en http://localhost:8080
+2026/06/19 12:24:43 Conexión a PostgreSQL establecida
+2026/06/19 12:24:43 Servidor en http://localhost:8080
 ```
 
 ---
 
-## Endpoints de la API
+## Conexión de Dispositivos Móviles Físicos (USB ADB)
 
-### Autenticación (públicos)
+Cuando usas un celular físico conectado a tu computadora por USB para probar la aplicación en Flutter, los cortafuegos y el aislamiento de red (AP Isolation) de tu router Wi-Fi bloquearán las peticiones REST. 
 
-| Método | Endpoint              | Descripción               |
-|--------|-----------------------|---------------------------|
-| POST   | `/api/auth/register`  | Registrar nuevo usuario   |
-| POST   | `/api/auth/login`     | Iniciar sesión → JWT      |
+Para solucionar esto de manera robusta y sin configurar IPs variables:
 
-### Herramientas
+### 1. Activar Depuración por USB en el Celular
+Ve a **Ajustes > Opciones de desarrollador** en tu teléfono Android y activa la **Depuración por USB**.
 
-| Método | Endpoint           | Acceso            | Descripción                  |
-|--------|--------------------|-------------------|------------------------------|
-| GET    | `/api/tools`       | Público           | Listar todo el catálogo      |
-| GET    | `/api/tools?available=true` | Público | Solo herramientas disponibles |
-| POST   | `/api/tools`       | 🔒 Solo Owner     | Crear herramienta            |
-| PUT    | `/api/tools/:id`   | 🔒 Solo Owner     | Actualizar herramienta       |
-| DELETE | `/api/tools/:id`   | 🔒 Solo Owner     | Eliminar herramienta         |
-
----
-
-## Ejemplos con curl
-
-### Registrar un propietario
-```bash
-curl -X POST http://localhost:8080/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Carlos Propietario",
-    "email": "carlos@example.com",
-    "password": "mipassword123",
-    "role": "owner"
-  }'
+### 2. Ejecutar Redirección de Puertos ADB
+Abre una terminal en tu computadora y ejecuta la utilidad ADB del SDK de Android para enlazar el puerto local del celular con el de la computadora:
+```powershell
+& "C:\Users\aless\AppData\Local\Android\Sdk\platform-tools\adb.exe" reverse tcp:8080 tcp:8080
 ```
 
-### Login
-```bash
-curl -X POST http://localhost:8080/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email": "owner@example.com", "password": "password123"}'
-```
-
-Copia el `token` de la respuesta para usarlo en los siguientes requests.
-
-### Ver catálogo (sin autenticación)
-```bash
-curl http://localhost:8080/api/tools
-```
-
-### Crear herramienta (requiere token de owner)
-```bash
-curl -X POST http://localhost:8080/api/tools \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer TU_TOKEN_AQUI" \
-  -d '{
-    "name": "Martillo de Carpintero",
-    "description": "Martillo de 500g con mango de fibra de vidrio",
-    "category": "Manual",
-    "is_available": true
-  }'
-```
-
-### Actualizar herramienta
-```bash
-curl -X PUT http://localhost:8080/api/tools/UUID_DE_LA_HERRAMIENTA \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer TU_TOKEN_AQUI" \
-  -d '{"is_available": false}'
-```
-
-### Eliminar herramienta
-```bash
-curl -X DELETE http://localhost:8080/api/tools/UUID_DE_LA_HERRAMIENTA \
-  -H "Authorization: Bearer TU_TOKEN_AQUI"
-```
-
----
-
-## Errores HTTP manejados
-
-| Código | Cuándo ocurre                                      |
-|--------|----------------------------------------------------|
-| 400    | Body JSON inválido o campos requeridos faltantes   |
-| 401    | Sin token, token inválido o credenciales incorrectas |
-| 403    | Token válido pero rol sin permisos (no es owner)   |
-| 404    | Herramienta no encontrada                          |
-| 409    | Email ya registrado                                |
-| 500    | Error interno del servidor (ver logs)              |
-
----
-
-## Decisiones de diseño
-
-- **pgx en lugar de GORM**: pgx es el driver nativo de PostgreSQL para Go, sin abstracciones innecesarias. Las queries SQL explícitas son más fáciles de optimizar y depurar que el ORM auto-generado.
-- **pgxpool**: Un pool de conexiones reutiliza hasta 25 conexiones simultáneas en lugar de abrir una nueva por cada request HTTP.
-- **Arquitectura en capas**: `handler → repository → database`. Los handlers no conocen SQL; los repositorios no conocen HTTP.
-- **Error sentinela**: `ErrNotFound` y `ErrForbidden` permiten que el handler decida el código HTTP sin usar strings frágiles.
-- **Graceful shutdown**: El servidor espera hasta 10 segundos a que terminen los requests activos antes de cerrarse (importante en producción con Docker/K8s).
+### 3. Configuración en la App móvil (Flutter)
+La app móvil está configurada en `lib/shared/config/api_config.dart` para apuntar a `127.0.0.1:8080`. Gracias a `adb reverse`, toda la comunicación viajará de manera segura y veloz a través del cable USB directo a tu servidor local de Go.
