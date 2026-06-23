@@ -1,24 +1,13 @@
 // @title           Tool Rental API
 // @version         1.0
 // @description     API de renta de herramientas con aceptación mutua (apretón de manos digital) y pago con Mercado Pago.
-// @description
-// @description     ## Flujo de renta
-// @description     1. Propietario registra herramienta con precio
-// @description     2. Solicitante solicita renta → estado **pending** (fondos congelados en MP)
-// @description     3. Ambos llaman `/confirm-delivery` con GPS → estado **active** + contrato SHA-256
-// @description     4a. Ambos llaman `/confirm-return` → estado **completed** (MP cobra renta, devuelve depósito)
-// @description     4b. Propietario llama `/dispute` → estado **disputed** (MP captura depósito como penalización)
-//
 // @contact.name   Angel Chame
 // @contact.email  angelchame6@gmail.com
-//
 // @host            localhost:8080
 // @BasePath        /api
-//
 // @securityDefinitions.apikey BearerAuth
 // @in              header
 // @name            Authorization
-// @description     Pegar el token así: **Bearer &lt;token&gt;**
 package main
 
 import (
@@ -36,15 +25,21 @@ import (
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 
-	"github.com/yourusername/tool-inventory-api/internal/adapters/primary/http/handler"
-	"github.com/yourusername/tool-inventory-api/internal/adapters/primary/http/router"
-	jwtadapter "github.com/yourusername/tool-inventory-api/internal/adapters/secondary/jwt"
-	"github.com/yourusername/tool-inventory-api/internal/adapters/secondary/payment"
-	"github.com/yourusername/tool-inventory-api/internal/adapters/secondary/postgres"
-	"github.com/yourusername/tool-inventory-api/internal/adapters/secondary/storage"
-	"github.com/yourusername/tool-inventory-api/internal/core/ports/output"
-	"github.com/yourusername/tool-inventory-api/internal/core/service"
-	"github.com/yourusername/tool-inventory-api/internal/infrastructure/database"
+	userhandler "github.com/yourusername/tool-inventory-api/internal/user/handler"
+	toolhandler "github.com/yourusername/tool-inventory-api/internal/tool/handler"
+	rentalhandler "github.com/yourusername/tool-inventory-api/internal/rental/handler"
+	"github.com/yourusername/tool-inventory-api/internal/shared/router"
+	jwtadapter "github.com/yourusername/tool-inventory-api/internal/shared/jwt"
+	"github.com/yourusername/tool-inventory-api/internal/shared/payment"
+	userpostgres "github.com/yourusername/tool-inventory-api/internal/user/postgres"
+	toolpostgres "github.com/yourusername/tool-inventory-api/internal/tool/postgres"
+	rentalpostgres "github.com/yourusername/tool-inventory-api/internal/rental/postgres"
+	"github.com/yourusername/tool-inventory-api/internal/shared/storage"
+	"github.com/yourusername/tool-inventory-api/internal/shared/ports"
+	userservice "github.com/yourusername/tool-inventory-api/internal/user/service"
+	toolservice "github.com/yourusername/tool-inventory-api/internal/tool/service"
+	rentalservice "github.com/yourusername/tool-inventory-api/internal/rental/service"
+	"github.com/yourusername/tool-inventory-api/internal/shared/database"
 
 	_ "github.com/yourusername/tool-inventory-api/docs" // generado por swag init
 )
@@ -73,7 +68,7 @@ func main() {
 	fileStorage := storage.NewLocalStorage(uploadsDir, uploadsBaseURL)
 
 	// Proveedor de pagos: real si MP_ACCESS_TOKEN está configurado, mock si no
-	var paymentProvider output.PaymentProvider
+	var paymentProvider sharedports.PaymentProvider
 	if mpToken := os.Getenv("MP_ACCESS_TOKEN"); mpToken != "" {
 		paymentProvider = payment.NewMercadoPagoProvider(mpToken)
 		log.Println("Mercado Pago: modo producción")
@@ -82,21 +77,21 @@ func main() {
 		log.Println("Mercado Pago: modo mock (MP_ACCESS_TOKEN no configurado)")
 	}
 
-	userRepo := postgres.NewUserRepository(database.DB)
-	toolRepo := postgres.NewToolRepository(database.DB)
-	rentalRepo := postgres.NewRentalRepository(database.DB)
+	userRepo := userpostgres.NewUserRepository(database.DB)
+	toolRepo := toolpostgres.NewToolRepository(database.DB)
+	rentalRepo := rentalpostgres.NewRentalRepository(database.DB)
 
 	// ── Servicios ──────────────────────────────────────────────────────────────
-	authSvc := service.NewAuthService(userRepo, tokenProvider)
-	toolSvc := service.NewToolService(toolRepo, fileStorage)
-	rentalSvc := service.NewRentalService(rentalRepo, toolRepo, paymentProvider)
+	authSvc := userservice.NewAuthService(userRepo, tokenProvider)
+	toolSvc := toolservice.NewToolService(toolRepo, userRepo, fileStorage)
+	rentalSvc := rentalservice.NewRentalService(rentalRepo, toolRepo, paymentProvider)
 
 	// ── Adaptadores primarios (HTTP) ───────────────────────────────────────────
 	handlers := router.Handlers{
-		Auth:    handler.NewAuthHandler(authSvc),
-		Tool:    handler.NewToolHandler(toolSvc),
-		Rental:  handler.NewRentalHandler(rentalSvc),
-		Webhook: handler.NewWebhookHandler(),
+		Auth:    userhandler.NewAuthHandler(authSvc),
+		Tool:    toolhandler.NewToolHandler(toolSvc),
+		Rental:  rentalhandler.NewRentalHandler(rentalSvc),
+		Webhook: rentalhandler.NewWebhookHandler(),
 	}
 
 	if os.Getenv("GIN_MODE") == "release" {
