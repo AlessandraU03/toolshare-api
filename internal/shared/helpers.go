@@ -27,9 +27,13 @@ func HandleServiceErr(c *gin.Context, err error) {
 	case errors.Is(err, apperrors.ErrForbidden):
 		c.JSON(http.StatusForbidden, gin.H{"error": "no tienes permiso sobre este recurso"})
 	default:
-		// Detectar error de llave foránea de PostgreSQL (herramienta con rentas activas)
+		if strings.Contains(err.Error(), "renta_en_curso") {
+			c.JSON(http.StatusConflict, gin.H{"error": "No se puede eliminar: la herramienta tiene una renta activa en curso"})
+			return
+		}
+		// Detectar error de llave foránea de PostgreSQL
 		if strings.Contains(err.Error(), "foreign key") || strings.Contains(err.Error(), "violates foreign key constraint") {
-			c.JSON(http.StatusConflict, gin.H{"error": "No se puede eliminar: la herramienta tiene rentas asociadas"})
+			c.JSON(http.StatusConflict, gin.H{"error": "No se puede eliminar: la herramienta tiene procesos asociados"})
 			return
 		}
 		log.Printf("ERROR no manejado en handler: %v\n", err)

@@ -117,6 +117,20 @@ func (r *ToolRepository) Update(ctx context.Context, tool *tooldomain.Tool) (*to
 }
 
 func (r *ToolRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	var ongoingCount int
+	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM rentals WHERE tool_id = $1 AND status IN ('pending', 'active', 'disputed')`, id).Scan(&ongoingCount)
+	if err != nil {
+		return fmt.Errorf("verificar rentas activas: %w", err)
+	}
+	if ongoingCount > 0 {
+		return errors.New("renta_en_curso")
+	}
+
+	_, err = r.db.Exec(ctx, `DELETE FROM rentals WHERE tool_id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("eliminar historial de rentas: %w", err)
+	}
+
 	result, err := r.db.Exec(ctx, `DELETE FROM tools WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("eliminar herramienta: %w", err)
