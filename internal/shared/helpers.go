@@ -2,7 +2,9 @@ package shared
 
 import (
 	"errors"
+	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -25,6 +27,12 @@ func HandleServiceErr(c *gin.Context, err error) {
 	case errors.Is(err, apperrors.ErrForbidden):
 		c.JSON(http.StatusForbidden, gin.H{"error": "no tienes permiso sobre este recurso"})
 	default:
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "error interno del servidor"})
+		// Detectar error de llave foránea de PostgreSQL (herramienta con rentas activas)
+		if strings.Contains(err.Error(), "foreign key") || strings.Contains(err.Error(), "violates foreign key constraint") {
+			c.JSON(http.StatusConflict, gin.H{"error": "No se puede eliminar: la herramienta tiene rentas asociadas"})
+			return
+		}
+		log.Printf("ERROR no manejado en handler: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 	}
 }
