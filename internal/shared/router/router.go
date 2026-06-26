@@ -76,6 +76,8 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string)
 			rentals.POST("/:id/confirm-return", h.Rental.ConfirmReturn)
 			rentals.POST("/:id/dispute", h.Rental.Dispute)
 			rentals.DELETE("/:id", h.Rental.CancelRental)
+			rentals.GET("/:id/messages", h.Rental.GetMessages)
+			rentals.POST("/:id/messages", h.Rental.SendMessage)
 		}
 	}
 

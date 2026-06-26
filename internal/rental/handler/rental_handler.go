@@ -68,12 +68,13 @@ func (h *RentalHandler) CreateRental(c *gin.Context) {
 	requesterID := sharedmiddleware.UserIDFromContext(c)
 
 	rental, err := h.rentalSvc.Create(c.Request.Context(), rentalports.CreateRentalInput{
-		ToolID:      toolID,
-		RequesterID: requesterID,
-		StartDate:   startDate,
-		EndDate:     endDate,
-		CardToken:   req.CardToken,
-		PayerEmail:  req.PayerEmail,
+		ToolID:        toolID,
+		RequesterID:   requesterID,
+		StartDate:     startDate,
+		EndDate:       endDate,
+		PaymentMethod: req.PaymentMethod,
+		CardToken:     req.CardToken,
+		PayerEmail:    req.PayerEmail,
 	})
 	if err != nil {
 		switch {
@@ -305,4 +306,49 @@ func (h *RentalHandler) CancelRental(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, ToRentalResponse(rental))
+}
+
+func (h *RentalHandler) GetMessages(c *gin.Context) {
+	id, err := shared.ParseUUID(c, "id")
+	if err != nil {
+		return
+	}
+	userID := sharedmiddleware.UserIDFromContext(c)
+	msgs, err := h.rentalSvc.GetMessages(c.Request.Context(), id, userID)
+	if err != nil {
+		if errors.Is(err, rentalservice.ErrUnauthorized) {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+		shared.HandleServiceErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, ToMessageListResponse(msgs))
+}
+
+func (h *RentalHandler) SendMessage(c *gin.Context) {
+	id, err := shared.ParseUUID(c, "id")
+	if err != nil {
+		return
+	}
+	var req SendMessageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	userID := sharedmiddleware.UserIDFromContext(c)
+	msg, err := h.rentalSvc.SendMessage(c.Request.Context(), rentalports.SendMessageInput{
+		RentalID: id,
+		SenderID: userID,
+		Message:  req.Message,
+	})
+	if err != nil {
+		if errors.Is(err, rentalservice.ErrUnauthorized) {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, ToMessageResponse(msg))
 }

@@ -8,11 +8,12 @@ import (
 // ── Request ───────────────────────────────────────────────────────────────────
 
 type CreateRentalRequest struct {
-	ToolID     string `json:"tool_id"    binding:"required,uuid" example:"550e8400-e29b-41d4-a716-446655440000"`
-	StartDate  string `json:"start_date" binding:"required"      example:"2026-06-20T09:00:00Z"`
-	EndDate    string `json:"end_date"   binding:"required"      example:"2026-06-25T18:00:00Z"`
-	CardToken  string `json:"card_token"  example:"TEST-card-token"` // opcional; generado por el SDK de MP en el frontend
-	PayerEmail string `json:"payer_email" example:"solicitante@ejemplo.com"` // requerido si card_token está presente
+	ToolID        string `json:"tool_id"        binding:"required,uuid"`
+	StartDate     string `json:"start_date"     binding:"required"`
+	EndDate       string `json:"end_date"       binding:"required"`
+	PaymentMethod string `json:"payment_method"` // "card" o "cash"
+	CardToken     string `json:"card_token"`
+	PayerEmail    string `json:"payer_email"`
 }
 
 // ConfirmDeliveryRequest permite enviar coordenadas GPS al confirmar entrega.
@@ -37,7 +38,8 @@ type RentalResponse struct {
 	EndDate     string  `json:"end_date"`
 	DailyRate   float64 `json:"daily_rate"`
 	TotalAmount float64 `json:"total_amount"`
-	Status      string  `json:"status"`
+	Status        string  `json:"status"`
+	PaymentMethod string  `json:"payment_method"`
 
 	// Pago
 	MPPaymentID      string  `json:"mp_payment_id,omitempty"`
@@ -76,6 +78,7 @@ func ToRentalResponse(r *rentaldomain.Rental) RentalResponse {
 		DailyRate:                  r.DailyRate,
 		TotalAmount:                r.TotalAmount,
 		Status:                     string(r.Status),
+		PaymentMethod:              r.PaymentMethod,
 		MPPaymentID:                r.MPPaymentID,
 		PaymentStatus:              r.PaymentStatus,
 		DeductibleAmount:           r.DeductibleAmount,
@@ -102,4 +105,34 @@ func ToRentalListResponse(rentals []*rentaldomain.Rental) []RentalResponse {
 		resp = append(resp, ToRentalResponse(r))
 	}
 	return resp
+}
+
+type SendMessageRequest struct {
+	Message string `json:"message" binding:"required"`
+}
+
+type MessageResponse struct {
+	ID        string `json:"id"`
+	RentalID  string `json:"rental_id"`
+	SenderID  string `json:"sender_id"`
+	Message   string `json:"message"`
+	CreatedAt string `json:"created_at"`
+}
+
+func ToMessageResponse(m *rentaldomain.Message) MessageResponse {
+	return MessageResponse{
+		ID:        m.ID.String(),
+		RentalID:  m.RentalID.String(),
+		SenderID:  m.SenderID.String(),
+		Message:   m.Message,
+		CreatedAt: m.CreatedAt.Format(time.RFC3339),
+	}
+}
+
+func ToMessageListResponse(msgs []*rentaldomain.Message) []MessageResponse {
+	out := make([]MessageResponse, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, ToMessageResponse(m))
+	}
+	return out
 }

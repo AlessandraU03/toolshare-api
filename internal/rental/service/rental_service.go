@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -50,6 +51,11 @@ func (s *rentalService) Create(ctx context.Context, inp rentalports.CreateRental
 
 	deductible := tool.EstimatedValue * 0.10
 
+	method := inp.PaymentMethod
+	if method == "" {
+		method = "card"
+	}
+
 	rental := &rentaldomain.Rental{
 		ToolID:           inp.ToolID,
 		RequesterID:      inp.RequesterID,
@@ -58,12 +64,13 @@ func (s *rentalService) Create(ctx context.Context, inp rentalports.CreateRental
 		EndDate:          inp.EndDate,
 		DailyRate:        tool.DailyRate,
 		DeductibleAmount: deductible,
+		PaymentMethod:    method,
 		Status:           rentaldomain.RentalStatusPending,
 	}
 	rental.TotalAmount = rental.CalculateTotal()
 
-	// Pre-autorizar pago si se proporcionó token de tarjeta
-	if inp.CardToken != "" && s.paymentProvider != nil {
+	// Pre-autorizar pago si se proporcionó token de tarjeta y el método es tarjeta
+	if method == "card" && inp.CardToken != "" && s.paymentProvider != nil {
 		totalToFreeze := rental.TotalAmount + deductible
 		paymentID, err := s.paymentProvider.Authorize(ctx, sharedports.AuthorizePaymentInput{
 			Amount:      totalToFreeze,
@@ -250,4 +257,33 @@ func (s *rentalService) Cancel(ctx context.Context, rentalID uuid.UUID, userID u
 	}
 
 	return updated, nil
+}
+
+func (s *rentalService) GetMessages(ctx context.Context, rentalID uuid.UUID, userID uuid.UUID) ([]*rentaldomain.Message, error) {
+	rental, err := s.rentalRepo.FindByID(ctx, rentalID)
+	if err != nil {
+		return nil, err
+	}
+	if rental.OwnerID != userID && rental.RequesterID != userID {
+		return nil, ErrUnauthorized
+	}
+	return s.rentalRepo.GetMessages(ctx, rentalID)
+}
+
+func (s *rentalService) SendMessage(ctx context.Context, inp rentalports.SendMessageInput) (*rentaldomain.Message, error) {
+	rental, err := s.rentalRepo.FindByID(ctx, inp.RentalID)
+	if err != nil {
+		return nil, err
+	}
+	if rental.OwnerID != inp.SenderID && rental.RequesterID != inp.SenderID {
+		return nil, ErrUnauthorized
+	}
+	if strings.TrimSpace(inp.Message) == "" {
+		return nil, errors.New("el mensaje no puede estar vacío")
+	}
+	return s.rentalRepo.CreateMessage(ctx, &rentaldomain.Message{
+		RentalID: inp.RentalID,
+		SenderID: inp.SenderID,
+		Message:  strings.TrimSpace(inp.Message),
+	})
 }
