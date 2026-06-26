@@ -3,6 +3,7 @@ package toolhandler
 import (
 	"bytes"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -141,7 +142,8 @@ func (h *ToolHandler) CreateTool(c *gin.Context) {
 		Longitude:      req.Longitude,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "error al crear la herramienta"})
+		log.Printf("ERROR en CreateTool: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
