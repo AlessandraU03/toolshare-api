@@ -11,4 +11,6 @@ type RentalRepository interface {
 	FindByID(ctx context.Context, id uuid.UUID) (*rentaldomain.Rental, error)
 	FindByUser(ctx context.Context, userID uuid.UUID) ([]*rentaldomain.Rental, error)
 	Update(ctx context.Context, rental *rentaldomain.Rental) (*rentaldomain.Rental, error)
+	GetMessages(ctx context.Context, rentalID uuid.UUID) ([]*rentaldomain.Message, error)
+	CreateMessage(ctx context.Context, msg *rentaldomain.Message) (*rentaldomain.Message, error)
 }

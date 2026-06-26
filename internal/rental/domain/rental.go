@@ -29,7 +29,8 @@ type Rental struct {
 	TotalAmount float64
 	Status      RentalStatus
 
-	// Mercado Pago
+	// Método y Pasarela de Pagos
+	PaymentMethod    string // "card" o "cash"
 	MPPaymentID      string
 	PaymentStatus    string
 	DeductibleAmount float64 // 10 % del valor estimado de la herramienta

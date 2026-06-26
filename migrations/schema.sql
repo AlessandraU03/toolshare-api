@@ -77,7 +77,8 @@ CREATE TABLE IF NOT EXISTS rentals (
     requester_confirmed_return   BOOLEAN       NOT NULL DEFAULT FALSE,
     owner_confirmed_return       BOOLEAN       NOT NULL DEFAULT FALSE,
 
-    -- Pasarela de Pagos (Mercado Pago)
+    -- Pasarela de Pagos (Mercado Pago o Trato directo en Efectivo)
+    payment_method               VARCHAR(20)   NOT NULL DEFAULT 'card',
     mp_payment_id                TEXT,
     payment_status               TEXT,
     deductible_amount            NUMERIC(12,2) NOT NULL DEFAULT 0,
@@ -96,6 +97,20 @@ CREATE TABLE IF NOT EXISTS rentals (
 
     CONSTRAINT rentals_dates_check CHECK (end_date > start_date)
 );
+
+-- =============================================================================
+-- TABLA: rental_messages
+-- Chat de coordinación entre el propietario y el solicitante.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS rental_messages (
+    id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    rental_id   UUID        NOT NULL REFERENCES rentals(id) ON DELETE CASCADE,
+    sender_id   UUID        NOT NULL REFERENCES users(id),
+    message     TEXT        NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_rental_messages_rental_id ON rental_messages (rental_id);
 
 -- Índices de alquileres
 CREATE INDEX IF NOT EXISTS idx_rentals_tool_id      ON rentals (tool_id);

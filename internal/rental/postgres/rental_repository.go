@@ -25,7 +25,7 @@ func NewRentalRepository(db *pgxpool.Pool) rentalports.RentalRepository {
 // ── columnas seleccionadas en todos los SELECT ────────────────────────────────
 const rentalCols = `
 	id, tool_id, requester_id, owner_id, start_date, end_date,
-	daily_rate, total_amount, status,
+	daily_rate, total_amount, status, payment_method,
 	owner_confirmed_delivery, requester_confirmed_delivery,
 	requester_confirmed_return, owner_confirmed_return,
 	mp_payment_id, payment_status, deductible_amount,
@@ -34,21 +34,24 @@ const rentalCols = `
 	created_at, updated_at`
 
 func (r *RentalRepository) Create(ctx context.Context, rental *rentaldomain.Rental) (*rentaldomain.Rental, error) {
+	if rental.PaymentMethod == "" {
+		rental.PaymentMethod = "card"
+	}
 	query := `
 		INSERT INTO rentals (
 			tool_id, requester_id, owner_id, start_date, end_date,
-			daily_rate, total_amount, status,
+			daily_rate, total_amount, status, payment_method,
 			owner_confirmed_delivery, requester_confirmed_delivery,
 			requester_confirmed_return, owner_confirmed_return,
 			mp_payment_id, payment_status, deductible_amount
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
-		          NULLIF($13,''), NULLIF($14,''), $15)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+		          NULLIF($14,''), NULLIF($15,''), $16)
 		RETURNING ` + rentalCols
 
 	return r.scanRental(r.db.QueryRow(ctx, query,
 		rental.ToolID, rental.RequesterID, rental.OwnerID,
 		rental.StartDate, rental.EndDate,
-		rental.DailyRate, rental.TotalAmount, rental.Status,
+		rental.DailyRate, rental.TotalAmount, rental.Status, rental.PaymentMethod,
 		rental.OwnerConfirmedDelivery, rental.RequesterConfirmedDelivery,
 		rental.RequesterConfirmedReturn, rental.OwnerConfirmedReturn,
 		rental.MPPaymentID, rental.PaymentStatus, rental.DeductibleAmount,
@@ -155,7 +158,7 @@ func (r *RentalRepository) scan(scanFn func(...any) error, rental *rentaldomain.
 	err := scanFn(
 		&rental.ID, &rental.ToolID, &rental.RequesterID, &rental.OwnerID,
 		&rental.StartDate, &rental.EndDate,
-		&rental.DailyRate, &rental.TotalAmount, &rental.Status,
+		&rental.DailyRate, &rental.TotalAmount, &rental.Status, &rental.PaymentMethod,
 		&rental.OwnerConfirmedDelivery, &rental.RequesterConfirmedDelivery,
 		&rental.RequesterConfirmedReturn, &rental.OwnerConfirmedReturn,
 		&mpPaymentID, &paymentStatus, &rental.DeductibleAmount,
@@ -187,4 +190,33 @@ func (r *RentalRepository) scan(scanFn func(...any) error, rental *rentaldomain.
 		rental.DisputeReason = *disputeReason
 	}
 	return nil
+}
+
+func (r *RentalRepository) GetMessages(ctx context.Context, rentalID uuid.UUID) ([]*rentaldomain.Message, error) {
+	query := `SELECT id, rental_id, sender_id, message, created_at FROM rental_messages WHERE rental_id = $1 ORDER BY created_at ASC`
+	rows, err := r.db.Query(ctx, query, rentalID)
+	if err != nil {
+		return nil, fmt.Errorf("consultar mensajes: %w", err)
+	}
+	defer rows.Close()
+
+	var msgs []*rentaldomain.Message
+	for rows.Next() {
+		m := &rentaldomain.Message{}
+		if err := rows.Scan(&m.ID, &m.RentalID, &m.SenderID, &m.Message, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		msgs = append(msgs, m)
+	}
+	return msgs, rows.Err()
+}
+
+func (r *RentalRepository) CreateMessage(ctx context.Context, msg *rentaldomain.Message) (*rentaldomain.Message, error) {
+	query := `INSERT INTO rental_messages (rental_id, sender_id, message) VALUES ($1, $2, $3) RETURNING id, rental_id, sender_id, message, created_at`
+	m := &rentaldomain.Message{}
+	err := r.db.QueryRow(ctx, query, msg.RentalID, msg.SenderID, msg.Message).Scan(&m.ID, &m.RentalID, &m.SenderID, &m.Message, &m.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("crear mensaje: %w", err)
+	}
+	return m, nil
 }
