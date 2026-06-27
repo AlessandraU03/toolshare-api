@@ -37,6 +37,8 @@ import (
 	"github.com/yourusername/tool-inventory-api/internal/shared/storage"
 	"github.com/yourusername/tool-inventory-api/internal/shared/ports"
 	userservice "github.com/yourusername/tool-inventory-api/internal/user/service"
+	userports "github.com/yourusername/tool-inventory-api/internal/user/ports"
+	userdomain "github.com/yourusername/tool-inventory-api/internal/user/domain"
 	toolservice "github.com/yourusername/tool-inventory-api/internal/tool/service"
 	rentalservice "github.com/yourusername/tool-inventory-api/internal/rental/service"
 	"github.com/yourusername/tool-inventory-api/internal/shared/database"
@@ -85,6 +87,17 @@ func main() {
 	authSvc := userservice.NewAuthService(userRepo, tokenProvider)
 	toolSvc := toolservice.NewToolService(toolRepo, userRepo, fileStorage)
 	rentalSvc := rentalservice.NewRentalService(rentalRepo, toolRepo, paymentProvider)
+	adminSvc := rentalservice.NewAdminService(rentalRepo, toolRepo, paymentProvider)
+
+	// Sembrar usuario admin si no existe
+	_, _ = authSvc.Register(context.Background(), userports.RegisterInput{
+		Name:     "Admin ToolShare",
+		Email:    "admin@toolshare.com",
+		Password: "admin123",
+		Role:     userdomain.RoleAdmin,
+		Phone:    "9610000000",
+		INE:      "ADMIN000000000000",
+	})
 
 	// ── Adaptadores primarios (HTTP) ───────────────────────────────────────────
 	handlers := router.Handlers{
@@ -92,6 +105,7 @@ func main() {
 		Tool:    toolhandler.NewToolHandler(toolSvc),
 		Rental:  rentalhandler.NewRentalHandler(rentalSvc),
 		Webhook: rentalhandler.NewWebhookHandler(),
+		Admin:   rentalhandler.NewAdminHandler(adminSvc),
 	}
 
 	if os.Getenv("GIN_MODE") == "release" {
