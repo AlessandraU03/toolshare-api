@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
     email      VARCHAR(255) NOT NULL UNIQUE,
     password   VARCHAR(255) NOT NULL,  -- Hash bcrypt
     role       VARCHAR(20)  NOT NULL DEFAULT 'requester'
-                            CHECK (role IN ('owner', 'requester')),
+                            CHECK (role IN ('owner', 'requester', 'admin')),
     is_pro     BOOLEAN      NOT NULL DEFAULT FALSE,
     phone      VARCHAR(20)  NOT NULL DEFAULT '',
     ine        VARCHAR(50)  NOT NULL DEFAULT '',

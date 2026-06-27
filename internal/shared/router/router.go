@@ -16,6 +16,7 @@ type Handlers struct {
 	Tool    *toolhandler.ToolHandler
 	Rental  *rentalhandler.RentalHandler
 	Webhook *rentalhandler.WebhookHandler
+	Admin   *rentalhandler.AdminHandler
 }
 
 func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string) *gin.Engine {
@@ -78,6 +79,15 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string)
 			rentals.DELETE("/:id", h.Rental.CancelRental)
 			rentals.GET("/:id/messages", h.Rental.GetMessages)
 			rentals.POST("/:id/messages", h.Rental.SendMessage)
+		}
+
+		// Administrador: monitoreo y arbitraje
+		admin := protected.Group("/admin")
+		admin.Use(sharedmiddleware.RequireRole(userdomain.RoleAdmin))
+		{
+			admin.GET("/stats", h.Admin.GetStats)
+			admin.GET("/rentals", h.Admin.ListRentals)
+			admin.POST("/rentals/:id/resolve", h.Admin.ResolveDispute)
 		}
 	}
 

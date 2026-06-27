@@ -135,6 +135,21 @@ func (r *Rental) Dispute(reason string) error {
 	return nil
 }
 
+func (r *Rental) ResolveDispute(action, notes string) error {
+	if r.Status != RentalStatusDisputed {
+		return errors.New("la renta no está en disputa")
+	}
+	if action == "capture" {
+		r.Status = RentalStatusCompleted
+	} else {
+		r.Status = RentalStatusCancelled
+	}
+	if notes != "" {
+		r.DisputeReason = "[Dictamen Admin - " + action + "]: " + notes + " (Motivo: " + r.DisputeReason + ")"
+	}
+	return nil
+}
+
 func (r *Rental) Cancel() error {
 	if r.Status == RentalStatusCompleted {
 		return ErrCannotCancelDone

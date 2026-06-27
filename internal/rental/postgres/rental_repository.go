@@ -91,6 +91,49 @@ func (r *RentalRepository) FindByUser(ctx context.Context, userID uuid.UUID) ([]
 	return rentals, rows.Err()
 }
 
+func (r *RentalRepository) FindAll(ctx context.Context, status string) ([]*rentaldomain.Rental, error) {
+	query := `SELECT ` + rentalCols + ` FROM rentals`
+	var args []interface{}
+	if status != "" {
+		query += ` WHERE status = $1`
+		args = append(args, status)
+	}
+	query += ` ORDER BY created_at DESC`
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("listar todas las rentas: %w", err)
+	}
+	defer rows.Close()
+
+	var rentals []*rentaldomain.Rental
+	for rows.Next() {
+		rental := &rentaldomain.Rental{}
+		if err := r.scanRow(rows, rental); err != nil {
+			return nil, err
+		}
+		rentals = append(rentals, rental)
+	}
+	return rentals, rows.Err()
+}
+
+func (r *RentalRepository) GetAdminStats(ctx context.Context) (int, int, int, float64, error) {
+	query := `
+		SELECT 
+			COUNT(*)::int,
+			COUNT(*) FILTER (WHERE status = 'active')::int,
+			COUNT(*) FILTER (WHERE status = 'disputed')::int,
+			COALESCE(SUM(total_amount + deductible_amount) FILTER (WHERE payment_status = 'authorized'), 0)::float8
+		FROM rentals`
+	var total, active, disputed int
+	var frozen float64
+	err := r.db.QueryRow(ctx, query).Scan(&total, &active, &disputed, &frozen)
+	if err != nil {
+		return 0, 0, 0, 0, fmt.Errorf("consultar estadísticas admin: %w", err)
+	}
+	return total, active, disputed, frozen, nil
+}
+
 func (r *RentalRepository) Update(ctx context.Context, rental *rentaldomain.Rental) (*rentaldomain.Rental, error) {
 	query := `
 		UPDATE rentals
