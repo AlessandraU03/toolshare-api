@@ -3,7 +3,6 @@
 // @description     API de renta de herramientas con aceptación mutua (apretón de manos digital) y pago con Mercado Pago.
 // @contact.name   Angel Chame
 // @contact.email  angelchame6@gmail.com
-// @host            localhost:8080
 // @BasePath        /api
 // @securityDefinitions.apikey BearerAuth
 // @in              header
