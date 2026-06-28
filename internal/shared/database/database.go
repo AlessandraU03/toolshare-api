@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -22,6 +23,9 @@ func Connect() error {
 	if err != nil {
 		return fmt.Errorf("error al parsear DATABASE_URL: %w", err)
 	}
+
+	// Forzar modo compatible con transaction poolers de Supabase
+	config.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
 
 	config.MaxConns = 25
 	config.MinConns = 5
