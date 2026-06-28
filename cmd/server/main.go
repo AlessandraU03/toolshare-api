@@ -118,9 +118,12 @@ func main() {
 	r.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	// ── Servidor con graceful shutdown ─────────────────────────────────────────
-	port := os.Getenv("SERVER_PORT")
+	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = os.Getenv("SERVER_PORT")
+		if port == "" {
+			port = "8080"
+		}
 	}
 
 	srv := &http.Server{
