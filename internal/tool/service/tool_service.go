@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -172,8 +173,12 @@ type pythonPricingResponse struct {
 }
 
 func (s *toolService) GetPricingSuggestion(ctx context.Context, estimatedValue float64, scoreCondicion float64, category string, brand string) *toolports.PricingSuggestion {
-	// Llamar a FastAPI devaluación
-	apiURL := fmt.Sprintf("http://localhost:8000/suggest-price?precio_base=%f&score_condicion=%f&sector=%s&marca=%s",
+	mlBaseURL := os.Getenv("ML_SERVICE_URL")
+	if mlBaseURL == "" {
+		mlBaseURL = "http://localhost:8000"
+	}
+	apiURL := fmt.Sprintf("%s/suggest-price?precio_base=%f&score_condicion=%f&sector=%s&marca=%s",
+		mlBaseURL,
 		estimatedValue,
 		scoreCondicion,
 		url.QueryEscape(category),
@@ -237,7 +242,11 @@ func (s *toolService) PredictCondition(ctx context.Context, filename string, con
 
 	bodyWriter.Close()
 
-	apiURL := "http://localhost:8000/predict-condition"
+	mlBaseURL := os.Getenv("ML_SERVICE_URL")
+	if mlBaseURL == "" {
+		mlBaseURL = "http://localhost:8000"
+	}
+	apiURL := mlBaseURL + "/predict-condition"
 	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bodyBuf)
 	if err != nil {
 		return nil, fmt.Errorf("crear request a ML: %w", err)
@@ -273,7 +282,12 @@ func (s *toolService) PredictCondition(ctx context.Context, filename string, con
 }
 
 func (s *toolService) AutoValuate(ctx context.Context, name string, scoreCondicion float64, category string, brand string) (*toolports.AutoValuateOutput, error) {
-	apiURL := fmt.Sprintf("http://localhost:8000/auto-valuate?nombre_herramienta=%s&score_condicion=%f&sector=%s&marca=%s",
+	mlBaseURL := os.Getenv("ML_SERVICE_URL")
+	if mlBaseURL == "" {
+		mlBaseURL = "http://localhost:8000"
+	}
+	apiURL := fmt.Sprintf("%s/auto-valuate?nombre_herramienta=%s&score_condicion=%f&sector=%s&marca=%s",
+		mlBaseURL,
 		url.QueryEscape(name),
 		scoreCondicion,
 		url.QueryEscape(category),
