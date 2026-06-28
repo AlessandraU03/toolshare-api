@@ -294,6 +294,11 @@ func (s *toolService) AutoValuate(ctx context.Context, name string, scoreCondici
 		url.QueryEscape(brand),
 	)
 
+	mpToken := os.Getenv("MP_ACCESS_TOKEN")
+	if mpToken != "" {
+		apiURL = fmt.Sprintf("%s&access_token=%s", apiURL, url.QueryEscape(mpToken))
+	}
+
 	client := &http.Client{Timeout: 8 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
