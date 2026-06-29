@@ -82,6 +82,31 @@ func (s *toolService) GetByID(ctx context.Context, id uuid.UUID) (*tooldomain.To
 }
 
 func (s *toolService) List(ctx context.Context, filter toolports.ToolFilter) ([]*tooldomain.Tool, error) {
+	if filter.Search != "" {
+		matchedKeywords, err := s.callSemanticSearch(ctx, filter.Search)
+		if err == nil && len(matchedKeywords) > 0 {
+			var allTools []*tooldomain.Tool
+			seenIDs := make(map[uuid.UUID]bool)
+
+			for _, kw := range matchedKeywords {
+				kwFilter := filter
+				kwFilter.Search = kw
+
+				results, err := s.toolRepo.FindAll(ctx, kwFilter)
+				if err == nil {
+					for _, t := range results {
+						if !seenIDs[t.ID] {
+							seenIDs[t.ID] = true
+							allTools = append(allTools, t)
+						}
+					}
+				}
+			}
+			if len(allTools) > 0 {
+				return allTools, nil
+			}
+		}
+	}
 	return s.toolRepo.FindAll(ctx, filter)
 }
 
@@ -334,4 +359,45 @@ func (s *toolService) AutoValuate(ctx context.Context, name string, scoreCondici
 		MinimumDaily:   result.PrecioRentaMinimo,
 		Description:    fmt.Sprintf("Precio sugerido por Inteligencia Artificial (Mercado Libre API + Regresión). Modelo: %s", result.DetallesCalculo.ModeloMlUtilizado),
 	}, nil
+}
+
+func (s *toolService) callSemanticSearch(ctx context.Context, query string) ([]string, error) {
+	mlBaseURL := os.Getenv("ML_SERVICE_URL")
+	if mlBaseURL == "" {
+		mlBaseURL = "http://localhost:8000"
+	}
+	apiURL := fmt.Sprintf("%s/search?query=%s", mlBaseURL, url.QueryEscape(query))
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status code: %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Resultados []struct {
+			Nombre string `json:"nombre"`
+		} `json:"resultados"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	var keywords []string
+	for _, item := range result.Resultados {
+		if item.Nombre != "" {
+			keywords = append(keywords, item.Nombre)
+		}
+	}
+	return keywords, nil
 }
