@@ -37,7 +37,12 @@ func (p *StripeProvider) Authorize(ctx context.Context, inp sharedports.Authoriz
 	form.Set("currency", "mxn")
 	form.Set("payment_method_types[0]", "card")
 	form.Set("capture_method", "manual") // pre-autorización (hold)
-	form.Set("payment_method", inp.CardToken)
+	if strings.HasPrefix(inp.CardToken, "tok_") {
+		form.Set("payment_method_data[type]", "card")
+		form.Set("payment_method_data[card][token]", inp.CardToken)
+	} else {
+		form.Set("payment_method", inp.CardToken)
+	}
 	form.Set("confirm", "true")
 	form.Set("description", inp.Description)
 	if inp.PayerEmail != "" {
