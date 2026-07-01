@@ -68,14 +68,14 @@ func main() {
 	}
 	fileStorage := storage.NewLocalStorage(uploadsDir, uploadsBaseURL)
 
-	// Proveedor de pagos: real si MP_ACCESS_TOKEN está configurado, mock si no
+	// Proveedor de pagos: real si STRIPE_SECRET_KEY está configurado, mock si no
 	var paymentProvider sharedports.PaymentProvider
-	if mpToken := os.Getenv("MP_ACCESS_TOKEN"); mpToken != "" {
-		paymentProvider = payment.NewMercadoPagoProvider(mpToken)
-		log.Println("Mercado Pago: modo producción")
+	if stripeKey := os.Getenv("STRIPE_SECRET_KEY"); stripeKey != "" {
+		paymentProvider = payment.NewStripeProvider(stripeKey)
+		log.Println("Stripe: modo producción/pruebas activo")
 	} else {
 		paymentProvider = payment.NewMockPaymentProvider()
-		log.Println("Mercado Pago: modo mock (MP_ACCESS_TOKEN no configurado)")
+		log.Println("Stripe: modo mock (STRIPE_SECRET_KEY no configurado)")
 	}
 
 	userRepo := userpostgres.NewUserRepository(database.DB)
