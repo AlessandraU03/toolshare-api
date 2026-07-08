@@ -62,3 +62,14 @@ func (r *UserRepository) FindByID(ctx context.Context, id uuid.UUID) (*userdomai
 	}
 	return user, nil
 }
+
+func (r *UserRepository) UpdateIsPro(ctx context.Context, id uuid.UUID, isPro bool) error {
+	tag, err := r.db.Exec(ctx, `UPDATE users SET is_pro = $1, updated_at = now() WHERE id = $2`, isPro, id)
+	if err != nil {
+		return fmt.Errorf("actualizar is_pro del usuario: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}

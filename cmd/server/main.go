@@ -95,7 +95,7 @@ func main() {
 	rentalRepo := rentalpostgres.NewRentalRepository(database.DB)
 
 	// ── Servicios ──────────────────────────────────────────────────────────────
-	authSvc := userservice.NewAuthService(userRepo, tokenProvider)
+	authSvc := userservice.NewAuthService(userRepo, tokenProvider, paymentProvider)
 	toolSvc := toolservice.NewToolService(toolRepo, userRepo, fileStorage)
 	rentalSvc := rentalservice.NewRentalService(rentalRepo, toolRepo, paymentProvider)
 	adminSvc := rentalservice.NewAdminService(rentalRepo, toolRepo, paymentProvider)
@@ -115,7 +115,7 @@ func main() {
 		Auth:    userhandler.NewAuthHandler(authSvc),
 		Tool:    toolhandler.NewToolHandler(toolSvc),
 		Rental:  rentalhandler.NewRentalHandler(rentalSvc),
-		Webhook: rentalhandler.NewWebhookHandler(rentalSvc, paymentProvider, os.Getenv("MP_WEBHOOK_SECRET")),
+		Webhook: rentalhandler.NewWebhookHandler(rentalSvc, userRepo, paymentProvider, os.Getenv("MP_WEBHOOK_SECRET")),
 		Admin:   rentalhandler.NewAdminHandler(adminSvc),
 	}
 

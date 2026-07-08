@@ -37,6 +37,15 @@ type AuthResponse struct {
 	User  UserResponse `json:"user"`
 }
 
+type SubscribePreferenceResponse struct {
+	InitPoint    string `json:"init_point"`
+	PreferenceID string `json:"preference_id"`
+}
+
+type ConfirmSubscriptionRequest struct {
+	PaymentID string `json:"payment_id" binding:"required"`
+}
+
 func ToAuthResponse(out *userports.AuthOutput) AuthResponse {
 	return AuthResponse{
 		Token: out.Token,

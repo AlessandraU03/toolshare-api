@@ -1,6 +1,7 @@
 package rentalhandler
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,16 +13,19 @@ import (
 	"github.com/google/uuid"
 	rentalports "github.com/yourusername/tool-inventory-api/internal/rental/ports"
 	sharedports "github.com/yourusername/tool-inventory-api/internal/shared/ports"
+	userports "github.com/yourusername/tool-inventory-api/internal/user/ports"
+	userservice "github.com/yourusername/tool-inventory-api/internal/user/service"
 )
 
 type WebhookHandler struct {
 	rentalSvc       rentalports.RentalService
+	userRepo        userports.UserRepository
 	paymentProvider sharedports.PaymentProvider
 	webhookSecret   string
 }
 
-func NewWebhookHandler(rentalSvc rentalports.RentalService, paymentProvider sharedports.PaymentProvider, webhookSecret string) *WebhookHandler {
-	return &WebhookHandler{rentalSvc: rentalSvc, paymentProvider: paymentProvider, webhookSecret: webhookSecret}
+func NewWebhookHandler(rentalSvc rentalports.RentalService, userRepo userports.UserRepository, paymentProvider sharedports.PaymentProvider, webhookSecret string) *WebhookHandler {
+	return &WebhookHandler{rentalSvc: rentalSvc, userRepo: userRepo, paymentProvider: paymentProvider, webhookSecret: webhookSecret}
 }
 
 // verifySignature valida el header x-signature que envía Mercado Pago.
@@ -125,6 +129,12 @@ func (h *WebhookHandler) MercadoPago(c *gin.Context) {
 		return
 	}
 
+	if strings.HasPrefix(info.ExternalRef, userservice.SubscriptionExternalRefPrefix) {
+		h.handleSubscriptionPayment(ctx, info)
+		c.JSON(http.StatusOK, gin.H{"received": true})
+		return
+	}
+
 	rentalID, err := uuid.Parse(info.ExternalRef)
 	if err != nil {
 		log.Printf("WARN: external_reference inválido: %s", info.ExternalRef)
@@ -139,4 +149,27 @@ func (h *WebhookHandler) MercadoPago(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"received": true})
+}
+
+// handleSubscriptionPayment activa el plan Pro del usuario cuando MP confirma
+// un pago aprobado de la preferencia de suscripción (external_reference "sub:<user_id>").
+func (h *WebhookHandler) handleSubscriptionPayment(ctx context.Context, info sharedports.PaymentInfo) {
+	if info.Status != "approved" {
+		log.Printf("MP Webhook | suscripción %s con estado %s, no se activa Pro", info.ExternalRef, info.Status)
+		return
+	}
+
+	userIDStr := strings.TrimPrefix(info.ExternalRef, userservice.SubscriptionExternalRefPrefix)
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		log.Printf("WARN: external_reference de suscripción inválido: %s", info.ExternalRef)
+		return
+	}
+
+	if err := h.userRepo.UpdateIsPro(ctx, userID, true); err != nil {
+		log.Printf("WARN: no se pudo activar plan Pro del usuario %s: %v", userID, err)
+		return
+	}
+
+	log.Printf("MP Webhook | usuario %s activó plan Pro → payment_id=%s", userID, info.ID)
 }

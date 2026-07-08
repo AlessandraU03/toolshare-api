@@ -1,14 +1,14 @@
 package router
 
 import (
-	"net/http"
 	"github.com/gin-gonic/gin"
-	userhandler "github.com/yourusername/tool-inventory-api/internal/user/handler"
-	toolhandler "github.com/yourusername/tool-inventory-api/internal/tool/handler"
 	rentalhandler "github.com/yourusername/tool-inventory-api/internal/rental/handler"
 	sharedmiddleware "github.com/yourusername/tool-inventory-api/internal/shared/middleware"
-	userdomain "github.com/yourusername/tool-inventory-api/internal/user/domain"
 	sharedports "github.com/yourusername/tool-inventory-api/internal/shared/ports"
+	toolhandler "github.com/yourusername/tool-inventory-api/internal/tool/handler"
+	userdomain "github.com/yourusername/tool-inventory-api/internal/user/domain"
+	userhandler "github.com/yourusername/tool-inventory-api/internal/user/handler"
+	"net/http"
 )
 
 type Handlers struct {
@@ -54,6 +54,10 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string)
 	protected := api.Group("")
 	protected.Use(sharedmiddleware.RequireAuth(tokenProvider))
 	{
+		protected.GET("/auth/me", h.Auth.Me)
+		protected.POST("/auth/subscribe/preference", h.Auth.SubscribePreference)
+		protected.POST("/auth/subscribe/confirm", h.Auth.ConfirmSubscription)
+
 		// Propietario: gestión de herramientas
 		owner := protected.Group("")
 		owner.Use(sharedmiddleware.RequireRole(userdomain.RoleOwner))
