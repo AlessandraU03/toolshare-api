@@ -1,16 +1,69 @@
 package rentalhandler
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	rentalports "github.com/yourusername/tool-inventory-api/internal/rental/ports"
+	sharedports "github.com/yourusername/tool-inventory-api/internal/shared/ports"
 )
 
-type WebhookHandler struct{}
+type WebhookHandler struct {
+	rentalSvc       rentalports.RentalService
+	paymentProvider sharedports.PaymentProvider
+	webhookSecret   string
+}
 
-func NewWebhookHandler() *WebhookHandler {
-	return &WebhookHandler{}
+func NewWebhookHandler(rentalSvc rentalports.RentalService, paymentProvider sharedports.PaymentProvider, webhookSecret string) *WebhookHandler {
+	return &WebhookHandler{rentalSvc: rentalSvc, paymentProvider: paymentProvider, webhookSecret: webhookSecret}
+}
+
+// verifySignature valida el header x-signature que envía Mercado Pago.
+// Formato: "ts=<timestamp>,v1=<hmac_sha256_hex>". El manifest firmado es
+// "id:<data.id>;request-id:<x-request-id>;ts:<ts>;" con data.id en minúsculas.
+// Ver: https://www.mercadopago.com/developers/es/docs/checkout-api/additional-content/security/signature
+func (h *WebhookHandler) verifySignature(c *gin.Context) bool {
+	if h.webhookSecret == "" {
+		return true // sin secreto configurado (dev/sandbox): no se valida
+	}
+
+	xSignature := c.GetHeader("x-signature")
+	xRequestID := c.GetHeader("x-request-id")
+	dataID := c.Query("data.id")
+	if xSignature == "" || xRequestID == "" || dataID == "" {
+		return false
+	}
+
+	var ts, v1 string
+	for _, part := range strings.Split(xSignature, ",") {
+		kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		switch strings.TrimSpace(kv[0]) {
+		case "ts":
+			ts = strings.TrimSpace(kv[1])
+		case "v1":
+			v1 = strings.TrimSpace(kv[1])
+		}
+	}
+	if ts == "" || v1 == "" {
+		return false
+	}
+
+	manifest := "id:" + strings.ToLower(dataID) + ";request-id:" + xRequestID + ";ts:" + ts + ";"
+
+	mac := hmac.New(sha256.New, []byte(h.webhookSecret))
+	mac.Write([]byte(manifest))
+	expected := hex.EncodeToString(mac.Sum(nil))
+
+	return hmac.Equal([]byte(expected), []byte(v1))
 }
 
 type mpNotification struct {
@@ -32,6 +85,12 @@ type mpNotification struct {
 // @Success      200 {object} dto.MsgResponse
 // @Router       /webhooks/mercadopago [post]
 func (h *WebhookHandler) MercadoPago(c *gin.Context) {
+	if !h.verifySignature(c) {
+		log.Printf("WARN: firma de webhook MP inválida o ausente")
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "firma inválida"})
+		return
+	}
+
 	var notification mpNotification
 	if err := c.ShouldBindJSON(&notification); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "notificación inválida"})
@@ -41,8 +100,43 @@ func (h *WebhookHandler) MercadoPago(c *gin.Context) {
 	log.Printf("MP Webhook | type=%s action=%s payment_id=%s",
 		notification.Type, notification.Action, notification.Data.ID)
 
-	// TODO: actualizar payment_status en la BD cuando MP confirme el cambio de estado
-	// Consultar /v1/payments/{id} y actualizar rental.payment_status
+	// Solo procesar notificaciones de pago
+	if notification.Type != "payment" || notification.Data.ID == "" {
+		c.JSON(http.StatusOK, gin.H{"received": true})
+		return
+	}
+
+	if h.paymentProvider == nil {
+		c.JSON(http.StatusOK, gin.H{"received": true})
+		return
+	}
+
+	ctx := c.Request.Context()
+
+	info, err := h.paymentProvider.GetPaymentInfo(ctx, notification.Data.ID)
+	if err != nil {
+		log.Printf("WARN: no se pudo obtener info del pago %s: %v", notification.Data.ID, err)
+		c.JSON(http.StatusOK, gin.H{"received": true})
+		return
+	}
+
+	if info.ExternalRef == "" {
+		c.JSON(http.StatusOK, gin.H{"received": true})
+		return
+	}
+
+	rentalID, err := uuid.Parse(info.ExternalRef)
+	if err != nil {
+		log.Printf("WARN: external_reference inválido: %s", info.ExternalRef)
+		c.JSON(http.StatusOK, gin.H{"received": true})
+		return
+	}
+
+	if err := h.rentalSvc.UpdatePaymentStatus(ctx, rentalID, info.ID, info.Status); err != nil {
+		log.Printf("WARN: no se pudo actualizar payment_status de renta %s: %v", rentalID, err)
+	} else {
+		log.Printf("MP Webhook | renta %s actualizada → payment_id=%s status=%s", rentalID, info.ID, info.Status)
+	}
 
 	c.JSON(http.StatusOK, gin.H{"received": true})
 }

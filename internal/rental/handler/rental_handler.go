@@ -308,6 +308,51 @@ func (h *RentalHandler) CancelRental(c *gin.Context) {
 	c.JSON(http.StatusOK, ToRentalResponse(rental))
 }
 
+// CreatePreference godoc
+// @Summary      Crear preferencia de pago (Checkout Pro)
+// @Description  Crea una preferencia en Mercado Pago y devuelve el init_point para cargar en el WebView del frontend
+// @Tags         rentas
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path string                    true  "UUID de la renta"
+// @Param        body body CreatePreferenceRequest false "Email del pagador (opcional)"
+// @Success      200 {object} PreferenceResponse
+// @Failure      401 {object} dto.ErrResponse
+// @Failure      403 {object} dto.ErrResponse
+// @Failure      404 {object} dto.ErrResponse
+// @Failure      422 {object} dto.ErrResponse "Error al crear preferencia en MP"
+// @Router       /rentals/{id}/preference [post]
+func (h *RentalHandler) CreatePreference(c *gin.Context) {
+	id, err := shared.ParseUUID(c, "id")
+	if err != nil {
+		return
+	}
+
+	var req CreatePreferenceRequest
+	_ = c.ShouldBindJSON(&req)
+
+	requesterID := sharedmiddleware.UserIDFromContext(c)
+
+	out, err := h.rentalSvc.CreatePreference(c.Request.Context(), id, requesterID, req.PayerEmail)
+	if err != nil {
+		switch {
+		case errors.Is(err, rentalservice.ErrUnauthorized):
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		case errors.Is(err, rentalservice.ErrPaymentFailed):
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		default:
+			shared.HandleServiceErr(c, err)
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, PreferenceResponse{
+		InitPoint:    out.InitPoint,
+		PreferenceID: out.PreferenceID,
+	})
+}
+
 func (h *RentalHandler) GetMessages(c *gin.Context) {
 	id, err := shared.ParseUUID(c, "id")
 	if err != nil {

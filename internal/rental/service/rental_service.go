@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -257,6 +258,55 @@ func (s *rentalService) Cancel(ctx context.Context, rentalID uuid.UUID, userID u
 	}
 
 	return updated, nil
+}
+
+func (s *rentalService) CreatePreference(ctx context.Context, rentalID uuid.UUID, requesterID uuid.UUID, payerEmail string) (sharedports.CreatePreferenceOutput, error) {
+	if s.paymentProvider == nil {
+		return sharedports.CreatePreferenceOutput{}, fmt.Errorf("%w: pasarela de pagos no configurada", ErrPaymentFailed)
+	}
+
+	rental, err := s.rentalRepo.FindByID(ctx, rentalID)
+	if err != nil {
+		return sharedports.CreatePreferenceOutput{}, err
+	}
+	if rental.RequesterID != requesterID {
+		return sharedports.CreatePreferenceOutput{}, ErrUnauthorized
+	}
+
+	totalToFreeze := rental.TotalAmount + rental.DeductibleAmount
+
+	notificationURL := os.Getenv("MP_NOTIFICATION_URL")
+	backURL := os.Getenv("MP_BACK_URL")
+	if backURL == "" {
+		backURL = "toolshare://payment"
+	}
+
+	out, err := s.paymentProvider.CreatePreference(ctx, sharedports.CreatePreferenceInput{
+		Title:           fmt.Sprintf("Renta de herramienta (%s)", rentalID.String()[:8]),
+		TotalAmount:     totalToFreeze,
+		PayerEmail:      payerEmail,
+		ExternalRef:     rental.ID.String(),
+		NotificationURL: notificationURL,
+		BackURLSuccess:  backURL + "/success",
+		BackURLFailure:  backURL + "/failure",
+		BackURLPending:  backURL + "/pending",
+	})
+	if err != nil {
+		return sharedports.CreatePreferenceOutput{}, fmt.Errorf("%w: %v", ErrPaymentFailed, err)
+	}
+
+	return out, nil
+}
+
+func (s *rentalService) UpdatePaymentStatus(ctx context.Context, rentalID uuid.UUID, paymentID, status string) error {
+	rental, err := s.rentalRepo.FindByID(ctx, rentalID)
+	if err != nil {
+		return err
+	}
+	rental.MPPaymentID = paymentID
+	rental.PaymentStatus = status
+	_, err = s.rentalRepo.Update(ctx, rental)
+	return err
 }
 
 func (s *rentalService) GetMessages(ctx context.Context, rentalID uuid.UUID, userID uuid.UUID) ([]*rentaldomain.Message, error) {

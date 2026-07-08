@@ -73,6 +73,18 @@ func (p *StripeProvider) Cancel(ctx context.Context, paymentID string) error {
 	return err
 }
 
+// CreatePreference no está implementado para Stripe: el flujo de Checkout Pro
+// (preferencia + redirect) es específico de Mercado Pago. Stripe se usa aquí
+// solo con el flujo directo de tarjeta (Authorize/Capture/Cancel).
+func (p *StripeProvider) CreatePreference(ctx context.Context, inp sharedports.CreatePreferenceInput) (sharedports.CreatePreferenceOutput, error) {
+	return sharedports.CreatePreferenceOutput{}, fmt.Errorf("CreatePreference no está implementado para Stripe")
+}
+
+// GetPaymentInfo no está implementado para Stripe: no hay webhook de Stripe integrado.
+func (p *StripeProvider) GetPaymentInfo(ctx context.Context, paymentID string) (sharedports.PaymentInfo, error) {
+	return sharedports.PaymentInfo{}, fmt.Errorf("GetPaymentInfo no está implementado para Stripe")
+}
+
 type stripePaymentResponse struct {
 	ID    string `json:"id"`
 	Error *struct {

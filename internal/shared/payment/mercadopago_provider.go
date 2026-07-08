@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -56,6 +57,41 @@ type mpUpdateRequest struct {
 	TransactionAmount float64 `json:"transaction_amount,omitempty"`
 }
 
+type mpPreferenceRequest struct {
+	Items           []mpItem   `json:"items"`
+	Payer           *mpPayer   `json:"payer,omitempty"`
+	BackURLs        mpBackURLs `json:"back_urls"`
+	AutoReturn      string     `json:"auto_return"`
+	NotificationURL string     `json:"notification_url,omitempty"`
+	ExternalRef     string     `json:"external_reference"`
+}
+
+type mpItem struct {
+	Title      string  `json:"title"`
+	Quantity   int     `json:"quantity"`
+	UnitPrice  float64 `json:"unit_price"`
+	CurrencyID string  `json:"currency_id"`
+}
+
+type mpBackURLs struct {
+	Success string `json:"success"`
+	Failure string `json:"failure"`
+	Pending string `json:"pending"`
+}
+
+type mpPreferenceResponse struct {
+	ID               string `json:"id"`
+	InitPoint        string `json:"init_point"`
+	SandboxInitPoint string `json:"sandbox_init_point"`
+	Message          string `json:"message,omitempty"`
+}
+
+type mpPaymentDetail struct {
+	ID          int64  `json:"id"`
+	Status      string `json:"status"`
+	ExternalRef string `json:"external_reference"`
+}
+
 // ── Métodos públicos ──────────────────────────────────────────────────────────
 
 func (p *MercadoPagoProvider) Authorize(ctx context.Context, inp sharedports.AuthorizePaymentInput) (string, error) {
@@ -87,6 +123,95 @@ func (p *MercadoPagoProvider) Capture(ctx context.Context, paymentID string, amo
 
 func (p *MercadoPagoProvider) Cancel(ctx context.Context, paymentID string) error {
 	return p.put(ctx, "/v1/payments/"+paymentID, mpUpdateRequest{Status: "cancelled"})
+}
+
+func (p *MercadoPagoProvider) CreatePreference(ctx context.Context, inp sharedports.CreatePreferenceInput) (sharedports.CreatePreferenceOutput, error) {
+	body := mpPreferenceRequest{
+		Items: []mpItem{
+			{
+				Title:      inp.Title,
+				Quantity:   1,
+				UnitPrice:  inp.TotalAmount,
+				CurrencyID: "MXN",
+			},
+		},
+		BackURLs: mpBackURLs{
+			Success: inp.BackURLSuccess,
+			Failure: inp.BackURLFailure,
+			Pending: inp.BackURLPending,
+		},
+		AutoReturn:      "approved",
+		NotificationURL: inp.NotificationURL,
+		ExternalRef:     inp.ExternalRef,
+	}
+	if inp.PayerEmail != "" {
+		body.Payer = &mpPayer{Email: inp.PayerEmail}
+	}
+
+	data, err := json.Marshal(body)
+	if err != nil {
+		return sharedports.CreatePreferenceOutput{}, fmt.Errorf("marshal preference: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, mpBaseURL+"/checkout/preferences", bytes.NewReader(data))
+	if err != nil {
+		return sharedports.CreatePreferenceOutput{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+p.accessToken)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return sharedports.CreatePreferenceOutput{}, fmt.Errorf("MP preference request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result mpPreferenceResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return sharedports.CreatePreferenceOutput{}, fmt.Errorf("decode MP preference: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		return sharedports.CreatePreferenceOutput{}, fmt.Errorf("MP %d: %s", resp.StatusCode, result.Message)
+	}
+
+	// Usar sandbox_init_point si el token es de prueba
+	initPoint := result.InitPoint
+	if strings.HasPrefix(p.accessToken, "TEST-") {
+		initPoint = result.SandboxInitPoint
+	}
+
+	return sharedports.CreatePreferenceOutput{
+		PreferenceID: result.ID,
+		InitPoint:    initPoint,
+	}, nil
+}
+
+func (p *MercadoPagoProvider) GetPaymentInfo(ctx context.Context, paymentID string) (sharedports.PaymentInfo, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, mpBaseURL+"/v1/payments/"+paymentID, nil)
+	if err != nil {
+		return sharedports.PaymentInfo{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+p.accessToken)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return sharedports.PaymentInfo{}, fmt.Errorf("MP get payment: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var detail mpPaymentDetail
+	if err := json.NewDecoder(resp.Body).Decode(&detail); err != nil {
+		return sharedports.PaymentInfo{}, fmt.Errorf("decode MP payment: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		return sharedports.PaymentInfo{}, fmt.Errorf("MP %d: pago no encontrado", resp.StatusCode)
+	}
+
+	return sharedports.PaymentInfo{
+		ID:          strconv.FormatInt(detail.ID, 10),
+		Status:      detail.Status,
+		ExternalRef: detail.ExternalRef,
+	}, nil
 }
 
 // ── Helpers HTTP ──────────────────────────────────────────────────────────────

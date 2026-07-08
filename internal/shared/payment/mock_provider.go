@@ -27,3 +27,18 @@ func (p *MockPaymentProvider) Capture(_ context.Context, paymentID string, amoun
 func (p *MockPaymentProvider) Cancel(_ context.Context, paymentID string) error {
 	return nil
 }
+
+func (p *MockPaymentProvider) CreatePreference(_ context.Context, inp sharedports.CreatePreferenceInput) (sharedports.CreatePreferenceOutput, error) {
+	return sharedports.CreatePreferenceOutput{
+		PreferenceID: fmt.Sprintf("MOCK_PREF_%d", time.Now().UnixMilli()),
+		InitPoint:    "https://www.mercadopago.com.mx/checkout/v1/redirect?pref_id=MOCK_TEST",
+	}, nil
+}
+
+func (p *MockPaymentProvider) GetPaymentInfo(_ context.Context, paymentID string) (sharedports.PaymentInfo, error) {
+	return sharedports.PaymentInfo{
+		ID:          paymentID,
+		Status:      "approved",
+		ExternalRef: "",
+	}, nil
+}

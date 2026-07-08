@@ -107,6 +107,15 @@ func ToRentalListResponse(rentals []*rentaldomain.Rental) []RentalResponse {
 	return resp
 }
 
+type CreatePreferenceRequest struct {
+	PayerEmail string `json:"payer_email"`
+}
+
+type PreferenceResponse struct {
+	InitPoint    string `json:"init_point"`
+	PreferenceID string `json:"preference_id"`
+}
+
 type SendMessageRequest struct {
 	Message string `json:"message" binding:"required"`
 }

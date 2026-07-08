@@ -68,14 +68,26 @@ func main() {
 	}
 	fileStorage := storage.NewLocalStorage(uploadsDir, uploadsBaseURL)
 
-	// Proveedor de pagos: real si STRIPE_SECRET_KEY está configurado, mock si no
+	// Proveedor de pagos: PAYMENT_PROVIDER elige la pasarela ("mercadopago" por defecto, o "stripe").
+	// Si a la pasarela elegida le falta su clave, cae al mock (modo desarrollo).
 	var paymentProvider sharedports.PaymentProvider
-	if stripeKey := os.Getenv("STRIPE_SECRET_KEY"); stripeKey != "" {
-		paymentProvider = payment.NewStripeProvider(stripeKey)
-		log.Println("Stripe: modo producción/pruebas activo")
-	} else {
-		paymentProvider = payment.NewMockPaymentProvider()
-		log.Println("Stripe: modo mock (STRIPE_SECRET_KEY no configurado)")
+	switch os.Getenv("PAYMENT_PROVIDER") {
+	case "stripe":
+		if stripeKey := os.Getenv("STRIPE_SECRET_KEY"); stripeKey != "" {
+			paymentProvider = payment.NewStripeProvider(stripeKey)
+			log.Println("Pasarela de pagos: Stripe (producción)")
+		} else {
+			paymentProvider = payment.NewMockPaymentProvider()
+			log.Println("Pasarela de pagos: mock (STRIPE_SECRET_KEY no configurado)")
+		}
+	default:
+		if mpToken := os.Getenv("MP_ACCESS_TOKEN"); mpToken != "" {
+			paymentProvider = payment.NewMercadoPagoProvider(mpToken)
+			log.Println("Pasarela de pagos: Mercado Pago (producción)")
+		} else {
+			paymentProvider = payment.NewMockPaymentProvider()
+			log.Println("Pasarela de pagos: mock (MP_ACCESS_TOKEN no configurado)")
+		}
 	}
 
 	userRepo := userpostgres.NewUserRepository(database.DB)
@@ -103,7 +115,7 @@ func main() {
 		Auth:    userhandler.NewAuthHandler(authSvc),
 		Tool:    toolhandler.NewToolHandler(toolSvc),
 		Rental:  rentalhandler.NewRentalHandler(rentalSvc),
-		Webhook: rentalhandler.NewWebhookHandler(),
+		Webhook: rentalhandler.NewWebhookHandler(rentalSvc, paymentProvider, os.Getenv("MP_WEBHOOK_SECRET")),
 		Admin:   rentalhandler.NewAdminHandler(adminSvc),
 	}
 

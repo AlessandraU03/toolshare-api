@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	rentaldomain "github.com/yourusername/tool-inventory-api/internal/rental/domain"
+	sharedports "github.com/yourusername/tool-inventory-api/internal/shared/ports"
 )
 
 type CreateRentalInput struct {
@@ -33,6 +34,11 @@ type RentalService interface {
 	ConfirmReturn(ctx context.Context, rentalID uuid.UUID, userID uuid.UUID) (*rentaldomain.Rental, error)
 	Dispute(ctx context.Context, rentalID uuid.UUID, ownerID uuid.UUID, reason string) (*rentaldomain.Rental, error)
 	Cancel(ctx context.Context, rentalID uuid.UUID, userID uuid.UUID) (*rentaldomain.Rental, error)
+
+	// CreatePreference crea una preferencia de Checkout Pro en MP y devuelve el init_point.
+	CreatePreference(ctx context.Context, rentalID uuid.UUID, requesterID uuid.UUID, payerEmail string) (sharedports.CreatePreferenceOutput, error)
+	// UpdatePaymentStatus actualiza el payment_id y status de una renta (llamado desde el webhook).
+	UpdatePaymentStatus(ctx context.Context, rentalID uuid.UUID, paymentID, status string) error
 
 	GetMessages(ctx context.Context, rentalID uuid.UUID, userID uuid.UUID) ([]*rentaldomain.Message, error)
 	SendMessage(ctx context.Context, inp SendMessageInput) (*rentaldomain.Message, error)
