@@ -30,11 +30,13 @@ type DisputeRequest struct {
 // ── Response ──────────────────────────────────────────────────────────────────
 
 type RentalResponse struct {
-	ID          string  `json:"id"`
-	ToolID      string  `json:"tool_id"`
-	RequesterID string  `json:"requester_id"`
-	OwnerID     string  `json:"owner_id"`
-	StartDate   string  `json:"start_date"`
+	ID            string  `json:"id"`
+	ToolID        string  `json:"tool_id"`
+	RequesterID   string  `json:"requester_id"`
+	OwnerID       string  `json:"owner_id"`
+	OwnerName     string  `json:"owner_name"`
+	RequesterName string  `json:"requester_name"`
+	StartDate     string  `json:"start_date"`
 	EndDate     string  `json:"end_date"`
 	DailyRate   float64 `json:"daily_rate"`
 	TotalAmount float64 `json:"total_amount"`
@@ -73,6 +75,8 @@ func ToRentalResponse(r *rentaldomain.Rental) RentalResponse {
 		ToolID:                     r.ToolID.String(),
 		RequesterID:                r.RequesterID.String(),
 		OwnerID:                    r.OwnerID.String(),
+		OwnerName:                  r.OwnerName,
+		RequesterName:              r.RequesterName,
 		StartDate:                  r.StartDate.Format(time.RFC3339),
 		EndDate:                    r.EndDate.Format(time.RFC3339),
 		DailyRate:                  r.DailyRate,

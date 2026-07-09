@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	rentaldomain "github.com/yourusername/tool-inventory-api/internal/rental/domain"
 	rentalports "github.com/yourusername/tool-inventory-api/internal/rental/ports"
+	"github.com/yourusername/tool-inventory-api/internal/shared/pubsub"
 	sharedports "github.com/yourusername/tool-inventory-api/internal/shared/ports"
 	toolports "github.com/yourusername/tool-inventory-api/internal/tool/ports"
 )
@@ -160,7 +161,11 @@ func (s *rentalService) ConfirmDelivery(ctx context.Context, rentalID uuid.UUID,
 		rental.ContractHash = fmt.Sprintf("%x", hash)
 	}
 
-	return s.rentalRepo.Update(ctx, rental)
+	updated, err := s.rentalRepo.Update(ctx, rental)
+	if err == nil {
+		pubsub.Publish(rental.ID)
+	}
+	return updated, err
 }
 
 // ConfirmReturn implementa el apretón de manos en la devolución.
@@ -188,6 +193,7 @@ func (s *rentalService) ConfirmReturn(ctx context.Context, rentalID uuid.UUID, u
 	if err != nil {
 		return nil, err
 	}
+	pubsub.Publish(rental.ID)
 
 	if updated.Status == rentaldomain.RentalStatusCompleted {
 		_ = s.toolRepo.SetAvailability(ctx, updated.ToolID, true)
@@ -199,6 +205,7 @@ func (s *rentalService) ConfirmReturn(ctx context.Context, rentalID uuid.UUID, u
 			} else {
 				updated.PaymentStatus = "captured"
 				updated, _ = s.rentalRepo.Update(ctx, updated)
+				pubsub.Publish(updated.ID)
 			}
 		}
 	}
@@ -226,6 +233,7 @@ func (s *rentalService) Dispute(ctx context.Context, rentalID uuid.UUID, ownerID
 	if err != nil {
 		return nil, err
 	}
+	pubsub.Publish(rental.ID)
 
 	// Capturar el depósito como penalización al solicitante
 	if s.paymentProvider != nil && updated.MPPaymentID != "" {
@@ -234,6 +242,7 @@ func (s *rentalService) Dispute(ctx context.Context, rentalID uuid.UUID, ownerID
 		} else {
 			updated.PaymentStatus = "captured"
 			updated, _ = s.rentalRepo.Update(ctx, updated)
+			pubsub.Publish(updated.ID)
 		}
 	}
 
@@ -258,6 +267,7 @@ func (s *rentalService) Cancel(ctx context.Context, rentalID uuid.UUID, userID u
 	if err != nil {
 		return nil, err
 	}
+	pubsub.Publish(rental.ID)
 
 	_ = s.toolRepo.SetAvailability(ctx, updated.ToolID, true)
 
@@ -317,6 +327,9 @@ func (s *rentalService) UpdatePaymentStatus(ctx context.Context, rentalID uuid.U
 	rental.MPPaymentID = paymentID
 	rental.PaymentStatus = status
 	_, err = s.rentalRepo.Update(ctx, rental)
+	if err == nil {
+		pubsub.Publish(rental.ID)
+	}
 	return err
 }
 
@@ -363,10 +376,10 @@ func (s *rentalService) VerifyContract(ctx context.Context, rentalID uuid.UUID) 
 		return false, "", "", errors.New("fecha de entrega nula en contrato activo")
 	}
 
-	// Re-calcular hash usando los datos crudos originales
+	// Re-calcular hash usando los datos crudos originales en formato UTC inmutable
 	raw := fmt.Sprintf("%s|%s|%s|%s|%s|%.6f|%.6f",
 		rental.ID, rental.ToolID, rental.OwnerID, rental.RequesterID,
-		rental.DeliveryAt.Format(time.RFC3339), rental.DeliveryLat, rental.DeliveryLng)
+		rental.DeliveryAt.UTC().Format(time.RFC3339), rental.DeliveryLat, rental.DeliveryLng)
 	hash := sha256.Sum256([]byte(raw))
 	recalculatedHash := fmt.Sprintf("%x", hash)
 

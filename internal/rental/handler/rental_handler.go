@@ -13,6 +13,7 @@ import (
 	rentalservice "github.com/yourusername/tool-inventory-api/internal/rental/service"
 	"github.com/yourusername/tool-inventory-api/internal/shared"
 	sharedmiddleware "github.com/yourusername/tool-inventory-api/internal/shared/middleware"
+	"github.com/yourusername/tool-inventory-api/internal/shared/pubsub"
 )
 
 type RentalHandler struct {
@@ -423,4 +424,52 @@ func (h *RentalHandler) VerifyContract(c *gin.Context) {
 		"stored_hash":       stored,
 		"recalculated_hash": recalculated,
 	})
+}
+
+// StreamRental godoc
+// @Summary      Stream de estado de renta (SSE)
+// @Description  Mantiene una conexión HTTP abierta para recibir el estado de la renta en tiempo real cuando ocurra un cambio.
+// @Tags         rentas
+// @Security     BearerAuth
+// @Param        id   path string true "UUID de la renta"
+// @Router       /rentals/{id}/stream [get]
+func (h *RentalHandler) StreamRental(c *gin.Context) {
+	id, err := shared.ParseUUID(c, "id")
+	if err != nil {
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Transfer-Encoding", "chunked")
+
+	updateChan, unsubscribe := pubsub.Subscribe(id)
+	defer unsubscribe()
+
+	// Enviar estado actual de inmediato
+	rental, err := h.rentalSvc.GetByID(c.Request.Context(), id)
+	if err == nil {
+		c.SSEvent("message", ToRentalResponse(rental))
+		c.Writer.Flush()
+	}
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-c.Request.Context().Done():
+			return
+		case <-updateChan:
+			rental, err := h.rentalSvc.GetByID(c.Request.Context(), id)
+			if err == nil {
+				c.SSEvent("message", ToRentalResponse(rental))
+				c.Writer.Flush()
+			}
+		case <-ticker.C:
+			c.SSEvent("ping", "keep-alive")
+			c.Writer.Flush()
+		}
+	}
 }

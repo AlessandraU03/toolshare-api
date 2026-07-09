@@ -86,6 +86,7 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string)
 			rentals.GET("/:id/messages", h.Rental.GetMessages)
 			rentals.POST("/:id/messages", h.Rental.SendMessage)
 			rentals.GET("/:id/verify-contract", h.Rental.VerifyContract)
+			rentals.GET("/:id/stream", h.Rental.StreamRental)
 		}
 
 		// Administrador: monitoreo y arbitraje

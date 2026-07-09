@@ -19,15 +19,17 @@ const (
 
 // Rental representa una renta de herramienta.
 type Rental struct {
-	ID          uuid.UUID
-	ToolID      uuid.UUID
-	RequesterID uuid.UUID
-	OwnerID     uuid.UUID
-	StartDate   time.Time
-	EndDate     time.Time
-	DailyRate   float64
-	TotalAmount float64
-	Status      RentalStatus
+	ID            uuid.UUID
+	ToolID        uuid.UUID
+	RequesterID   uuid.UUID
+	OwnerID       uuid.UUID
+	OwnerName     string
+	RequesterName string
+	StartDate     time.Time
+	EndDate       time.Time
+	DailyRate     float64
+	TotalAmount   float64
+	Status        RentalStatus
 
 	// Método y Pasarela de Pagos
 	PaymentMethod    string // "card" o "cash"

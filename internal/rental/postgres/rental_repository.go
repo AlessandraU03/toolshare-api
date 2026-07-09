@@ -31,7 +31,9 @@ const rentalCols = `
 	mp_payment_id, payment_status, deductible_amount,
 	contract_hash, delivery_lat, delivery_lng, delivery_at,
 	dispute_reason,
-	created_at, updated_at`
+	created_at, updated_at,
+	COALESCE((SELECT name FROM users WHERE id = owner_id), '') AS owner_name,
+	COALESCE((SELECT name FROM users WHERE id = requester_id), '') AS requester_name`
 
 func (r *RentalRepository) Create(ctx context.Context, rental *rentaldomain.Rental) (*rentaldomain.Rental, error) {
 	if rental.PaymentMethod == "" {
@@ -208,6 +210,7 @@ func (r *RentalRepository) scan(scanFn func(...any) error, rental *rentaldomain.
 		&contractHash, &deliveryLat, &deliveryLng, &deliveryAt,
 		&disputeReason,
 		&rental.CreatedAt, &rental.UpdatedAt,
+		&rental.OwnerName, &rental.RequesterName,
 	)
 	if err != nil {
 		return err
