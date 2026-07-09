@@ -41,6 +41,7 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string)
 	{
 		auth.POST("/register", h.Auth.Register)
 		auth.POST("/login", h.Auth.Login)
+		auth.POST("/verify-kyc", h.Auth.VerifyKyc)
 	}
 
 	api.GET("/tools", h.Tool.GetTools)
@@ -84,6 +85,7 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string)
 			rentals.DELETE("/:id", h.Rental.CancelRental)
 			rentals.GET("/:id/messages", h.Rental.GetMessages)
 			rentals.POST("/:id/messages", h.Rental.SendMessage)
+			rentals.GET("/:id/verify-contract", h.Rental.VerifyContract)
 		}
 
 		// Administrador: monitoreo y arbitraje
@@ -107,7 +109,7 @@ func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With, X-Device-ID")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
 
 		if c.Request.Method == "OPTIONS" {

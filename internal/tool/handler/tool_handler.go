@@ -140,6 +140,11 @@ func (h *ToolHandler) CreateTool(c *gin.Context) {
 		DailyRate:      req.DailyRate,
 		Latitude:       req.Latitude,
 		Longitude:      req.Longitude,
+		Brand:          req.Brand,
+		AgeMonths:      req.AgeMonths,
+		City:           req.City,
+		State:          req.State,
+		ConditionScore: req.ConditionScore,
 	})
 	if err != nil {
 		log.Printf("ERROR en CreateTool: %v\n", err)
@@ -323,7 +328,16 @@ func (h *ToolHandler) GetPricingSuggestion(c *gin.Context) {
 		return
 	}
 
-	suggestion := h.toolSvc.GetPricingSuggestion(c.Request.Context(), q.EstimatedValue, q.ScoreCondicion, q.Category, q.Brand)
+	name := q.Name
+	if name == "" {
+		name = q.Category
+	}
+	ageMonths := q.AgeMonths
+	if ageMonths <= 0 {
+		ageMonths = 12
+	}
+
+	suggestion := h.toolSvc.GetPricingSuggestion(c.Request.Context(), q.EstimatedValue, q.ScoreCondicion, q.Category, q.Brand, name, ageMonths)
 	c.JSON(http.StatusOK, suggestion)
 }
 
@@ -381,6 +395,7 @@ func (h *ToolHandler) AutoValuate(c *gin.Context) {
 	brand := c.Query("brand")
 	category := c.Query("category")
 	scoreCondicionStr := c.Query("score_condicion")
+	ageMonthsStr := c.Query("age_months")
 
 	if name == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "el parámetro 'name' es requerido"})
@@ -397,7 +412,17 @@ func (h *ToolHandler) AutoValuate(c *gin.Context) {
 		}
 	}
 
-	out, err := h.toolSvc.AutoValuate(c.Request.Context(), name, scoreCondicion, category, brand)
+	var ageMonths int = 12
+	if ageMonthsStr != "" {
+		var err error
+		ageMonths, err = strconv.Atoi(ageMonthsStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "el parámetro 'age_months' debe ser un número entero"})
+			return
+		}
+	}
+
+	out, err := h.toolSvc.AutoValuate(c.Request.Context(), name, scoreCondicion, category, brand, ageMonths)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

@@ -17,6 +17,12 @@ type Tool struct {
 	Latitude       float64
 	Longitude      float64
 	IsAvailable    bool
+	ConditionScore float64
+	Brand          string
+	AgeMonths      int
+	City           string
+	State          string
+	PriceSource    string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }

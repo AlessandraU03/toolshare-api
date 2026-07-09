@@ -50,6 +50,17 @@ func (s *rentalService) Create(ctx context.Context, inp rentalports.CreateRental
 		return nil, ErrToolNotAvailable
 	}
 
+	// Device Fingerprinting: Registrar huella del solicitante
+	if inp.IPAddress != "" && inp.DeviceID != "" {
+		_ = s.rentalRepo.LogFingerprint(ctx, inp.RequesterID, inp.IPAddress, inp.DeviceID)
+	}
+
+	// Detección de Colusión (Mismo dispositivo/red)
+	collusion, err := s.rentalRepo.CheckCollusion(ctx, tool.OwnerID, inp.RequesterID)
+	if err == nil && collusion {
+		return nil, errors.New("riesgo_colusion: se detectó coincidencia de dispositivo o red local entre el propietario y el arrendatario")
+	}
+
 	deductible := tool.EstimatedValue * 0.10
 
 	method := inp.PaymentMethod
@@ -336,4 +347,36 @@ func (s *rentalService) SendMessage(ctx context.Context, inp rentalports.SendMes
 		SenderID: inp.SenderID,
 		Message:  strings.TrimSpace(inp.Message),
 	})
+}
+
+func (s *rentalService) VerifyContract(ctx context.Context, rentalID uuid.UUID) (bool, string, string, error) {
+	rental, err := s.rentalRepo.FindByID(ctx, rentalID)
+	if err != nil {
+		return false, "", "", err
+	}
+
+	if rental.ContractHash == "" {
+		return false, "", "", errors.New("esta renta aun no cuenta con un contrato firmado")
+	}
+
+	if rental.DeliveryAt == nil {
+		return false, "", "", errors.New("fecha de entrega nula en contrato activo")
+	}
+
+	// Re-calcular hash usando los datos crudos originales
+	raw := fmt.Sprintf("%s|%s|%s|%s|%s|%.6f|%.6f",
+		rental.ID, rental.ToolID, rental.OwnerID, rental.RequesterID,
+		rental.DeliveryAt.Format(time.RFC3339), rental.DeliveryLat, rental.DeliveryLng)
+	hash := sha256.Sum256([]byte(raw))
+	recalculatedHash := fmt.Sprintf("%x", hash)
+
+	isValid := recalculatedHash == rental.ContractHash
+	return isValid, rental.ContractHash, recalculatedHash, nil
+}
+
+func (s *rentalService) LogUserFingerprint(ctx context.Context, userID uuid.UUID, ipAddress, deviceID string) error {
+	if ipAddress == "" || deviceID == "" {
+		return nil
+	}
+	return s.rentalRepo.LogFingerprint(ctx, userID, ipAddress, deviceID)
 }

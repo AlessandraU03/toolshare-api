@@ -3,6 +3,7 @@ package rentalhandler
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -66,6 +67,8 @@ func (h *RentalHandler) CreateRental(c *gin.Context) {
 	}
 
 	requesterID := sharedmiddleware.UserIDFromContext(c)
+	ip := c.ClientIP()
+	deviceID := c.GetHeader("X-Device-ID")
 
 	rental, err := h.rentalSvc.Create(c.Request.Context(), rentalports.CreateRentalInput{
 		ToolID:        toolID,
@@ -75,6 +78,8 @@ func (h *RentalHandler) CreateRental(c *gin.Context) {
 		PaymentMethod: req.PaymentMethod,
 		CardToken:     req.CardToken,
 		PayerEmail:    req.PayerEmail,
+		IPAddress:     ip,
+		DeviceID:      deviceID,
 	})
 	if err != nil {
 		switch {
@@ -82,6 +87,9 @@ func (h *RentalHandler) CreateRental(c *gin.Context) {
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		case errors.Is(err, rentalservice.ErrPaymentFailed):
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		case err.Error() != "" && strings.Contains(err.Error(), "riesgo_colusion"):
+			// Alerta de colusión / dispositivo compartido
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		default:
 			shared.HandleServiceErr(c, err)
 		}
@@ -396,4 +404,23 @@ func (h *RentalHandler) SendMessage(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, ToMessageResponse(msg))
+}
+
+func (h *RentalHandler) VerifyContract(c *gin.Context) {
+	id, err := shared.ParseUUID(c, "id")
+	if err != nil {
+		return
+	}
+
+	isValid, stored, recalculated, err := h.rentalSvc.VerifyContract(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"valid":             isValid,
+		"stored_hash":       stored,
+		"recalculated_hash": recalculated,
+	})
 }

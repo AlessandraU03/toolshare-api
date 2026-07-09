@@ -13,6 +13,11 @@ type CreateToolRequest struct {
 	DailyRate      float64 `json:"daily_rate"      binding:"required,gt=0"           example:"50"`
 	Latitude       float64 `json:"latitude"                                          example:"19.4326"`
 	Longitude      float64 `json:"longitude"                                         example:"-99.1332"`
+	Brand          string  `json:"brand"                                             example:"Bosch"`
+	AgeMonths      int     `json:"age_months"                                        example:"12"`
+	City           string  `json:"city"                                              example:"Guadalajara"`
+	State          string  `json:"state"                                             example:"Jalisco"`
+	ConditionScore float64 `json:"condition_score"`
 }
 
 type UpdateToolRequest struct {
@@ -31,6 +36,8 @@ type PricingQueryRequest struct {
 	ScoreCondicion float64 `form:"score_condicion" binding:"required"`
 	Category       string  `form:"category"        binding:"required"`
 	Brand          string  `form:"brand"           binding:"required"`
+	Name           string  `form:"name"`
+	AgeMonths      int     `form:"age_months"`
 }
 
 type ToolResponse struct {
@@ -46,6 +53,12 @@ type ToolResponse struct {
 	Latitude         float64 `json:"latitude"`
 	Longitude        float64 `json:"longitude"`
 	IsAvailable      bool    `json:"is_available"`
+	ConditionScore   float64 `json:"condition_score"`
+	Brand            string  `json:"brand"`
+	AgeMonths        int     `json:"age_months"`
+	City             string  `json:"city"`
+	State            string  `json:"state"`
+	PriceSource      string  `json:"price_source"`
 	CreatedAt        string  `json:"created_at"`
 	UpdatedAt        string  `json:"updated_at"`
 }
@@ -64,6 +77,12 @@ func ToToolResponse(t *tooldomain.Tool) ToolResponse {
 		Latitude:         t.Latitude,
 		Longitude:        t.Longitude,
 		IsAvailable:      t.IsAvailable,
+		ConditionScore:   t.ConditionScore,
+		Brand:            t.Brand,
+		AgeMonths:        t.AgeMonths,
+		City:             t.City,
+		State:            t.State,
+		PriceSource:      t.PriceSource,
 		CreatedAt:        t.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:        t.UpdatedAt.Format(time.RFC3339),
 	}

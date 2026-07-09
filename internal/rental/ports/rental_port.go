@@ -17,6 +17,8 @@ type CreateRentalInput struct {
 	PaymentMethod string // "card" o "cash"
 	CardToken     string // opcional; si se envía, se congela el pago en MP
 	PayerEmail    string // requerido cuando CardToken está presente
+	IPAddress     string
+	DeviceID      string
 }
 
 type SendMessageInput struct {
@@ -34,6 +36,9 @@ type RentalService interface {
 	ConfirmReturn(ctx context.Context, rentalID uuid.UUID, userID uuid.UUID) (*rentaldomain.Rental, error)
 	Dispute(ctx context.Context, rentalID uuid.UUID, ownerID uuid.UUID, reason string) (*rentaldomain.Rental, error)
 	Cancel(ctx context.Context, rentalID uuid.UUID, userID uuid.UUID) (*rentaldomain.Rental, error)
+
+	VerifyContract(ctx context.Context, rentalID uuid.UUID) (bool, string, string, error)
+	LogUserFingerprint(ctx context.Context, userID uuid.UUID, ipAddress, deviceID string) error
 
 	// CreatePreference crea una preferencia de Checkout Pro en MP y devuelve el init_point.
 	CreatePreference(ctx context.Context, rentalID uuid.UUID, requesterID uuid.UUID, payerEmail string) (sharedports.CreatePreferenceOutput, error)

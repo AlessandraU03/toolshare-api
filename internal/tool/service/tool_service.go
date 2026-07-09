@@ -67,6 +67,17 @@ func (s *toolService) Create(ctx context.Context, inp toolports.CreateToolInput)
 		Latitude:       inp.Latitude,
 		Longitude:      inp.Longitude,
 		IsAvailable:    true,
+		Brand:          inp.Brand,
+		AgeMonths:      inp.AgeMonths,
+		City:           inp.City,
+		State:          inp.State,
+		ConditionScore: func() float64 {
+			if inp.ConditionScore > 0 {
+				return inp.ConditionScore
+			}
+			return 0.70
+		}(),
+		PriceSource:    "catalogo_semilla",
 	}
 
 	// Aplicar mínimo del 50% del valor en 30 días
@@ -197,17 +208,19 @@ type pythonPricingResponse struct {
 	PrecioRentaSugerido float64 `json:"precio_renta_sugerido"`
 }
 
-func (s *toolService) GetPricingSuggestion(ctx context.Context, estimatedValue float64, scoreCondicion float64, category string, brand string) *toolports.PricingSuggestion {
+func (s *toolService) GetPricingSuggestion(ctx context.Context, estimatedValue float64, scoreCondicion float64, category string, brand string, name string, ageMonths int) *toolports.PricingSuggestion {
 	mlBaseURL := os.Getenv("ML_SERVICE_URL")
 	if mlBaseURL == "" {
 		mlBaseURL = "http://localhost:8000"
 	}
-	apiURL := fmt.Sprintf("%s/suggest-price?precio_base=%f&score_condicion=%f&sector=%s&marca=%s",
+	apiURL := fmt.Sprintf("%s/suggest-price?precio_base=%f&score_condicion=%f&sector=%s&marca=%s&nombre_herramienta=%s&age_months=%d",
 		mlBaseURL,
 		estimatedValue,
 		scoreCondicion,
 		url.QueryEscape(category),
 		url.QueryEscape(brand),
+		url.QueryEscape(name),
+		ageMonths,
 	)
 
 	// Crear cliente HTTP con timeout corto (1 segundo) para evitar colgar la API Go
@@ -306,17 +319,18 @@ func (s *toolService) PredictCondition(ctx context.Context, filename string, con
 	}, nil
 }
 
-func (s *toolService) AutoValuate(ctx context.Context, name string, scoreCondicion float64, category string, brand string) (*toolports.AutoValuateOutput, error) {
+func (s *toolService) AutoValuate(ctx context.Context, name string, scoreCondicion float64, category string, brand string, ageMonths int) (*toolports.AutoValuateOutput, error) {
 	mlBaseURL := os.Getenv("ML_SERVICE_URL")
 	if mlBaseURL == "" {
 		mlBaseURL = "http://localhost:8000"
 	}
-	apiURL := fmt.Sprintf("%s/auto-valuate?nombre_herramienta=%s&score_condicion=%f&sector=%s&marca=%s",
+	apiURL := fmt.Sprintf("%s/auto-valuate?nombre_herramienta=%s&score_condicion=%f&sector=%s&marca=%s&age_months=%d",
 		mlBaseURL,
 		url.QueryEscape(name),
 		scoreCondicion,
 		url.QueryEscape(category),
 		url.QueryEscape(brand),
+		ageMonths,
 	)
 
 	mpToken := os.Getenv("MP_ACCESS_TOKEN")

@@ -263,3 +263,35 @@ func (r *RentalRepository) CreateMessage(ctx context.Context, msg *rentaldomain.
 	}
 	return m, nil
 }
+
+func (r *RentalRepository) LogFingerprint(ctx context.Context, userID uuid.UUID, ipAddress, deviceID string) error {
+	query := `
+		INSERT INTO user_fingerprints (user_id, ip_address, device_id)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (user_id, ip_address, device_id) DO NOTHING
+	`
+	_, err := r.db.Exec(ctx, query, userID, ipAddress, deviceID)
+	return err
+}
+
+func (r *RentalRepository) CheckCollusion(ctx context.Context, ownerID, requesterID uuid.UUID) (bool, error) {
+	// Si es el mismo usuario, es colusión automática de autorenta
+	if ownerID == requesterID {
+		return true, nil
+	}
+	// Buscar coincidencia de IP o Device ID
+	query := `
+		SELECT EXISTS (
+			SELECT 1 
+			FROM user_fingerprints f1
+			JOIN user_fingerprints f2 ON f1.ip_address = f2.ip_address OR f1.device_id = f2.device_id
+			WHERE f1.user_id = $1 AND f2.user_id = $2
+		)
+	`
+	var exists bool
+	err := r.db.QueryRow(ctx, query, ownerID, requesterID).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}

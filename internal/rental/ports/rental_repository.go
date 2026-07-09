@@ -15,4 +15,6 @@ type RentalRepository interface {
 	GetAdminStats(ctx context.Context) (int, int, int, float64, error)
 	GetMessages(ctx context.Context, rentalID uuid.UUID) ([]*rentaldomain.Message, error)
 	CreateMessage(ctx context.Context, msg *rentaldomain.Message) (*rentaldomain.Message, error)
+	LogFingerprint(ctx context.Context, userID uuid.UUID, ipAddress, deviceID string) error
+	CheckCollusion(ctx context.Context, ownerID, requesterID uuid.UUID) (bool, error)
 }

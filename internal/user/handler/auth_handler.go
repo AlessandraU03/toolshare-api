@@ -184,3 +184,28 @@ func (h *AuthHandler) Me(c *gin.Context) {
 
 	c.JSON(http.StatusOK, ToUserResponse(user))
 }
+
+// VerifyKyc maneja la verificación de identidad mediante carga de archivos (INE y Selfie)
+func (h *AuthHandler) VerifyKyc(c *gin.Context) {
+	ineFile, ineHeader, err := c.Request.FormFile("ine_image")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "se requiere la foto del INE ('ine_image')"})
+		return
+	}
+	defer ineFile.Close()
+
+	selfieFile, selfieHeader, err := c.Request.FormFile("selfie_image")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "se requiere la foto selfie ('selfie_image')"})
+		return
+	}
+	defer selfieFile.Close()
+
+	res, err := h.authSvc.VerifyKyc(c.Request.Context(), ineHeader.Filename, ineFile, selfieHeader.Filename, selfieFile)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, res)
+}

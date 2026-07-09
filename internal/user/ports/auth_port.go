@@ -2,6 +2,7 @@ package userports
 
 import (
 	"context"
+	"io"
 
 	"github.com/google/uuid"
 	sharedports "github.com/yourusername/tool-inventory-api/internal/shared/ports"
@@ -35,4 +36,7 @@ type AuthService interface {
 
 	// ConfirmSubscriptionPayment verifica el pago directamente contra MP y activa el plan Pro.
 	ConfirmSubscriptionPayment(ctx context.Context, userID uuid.UUID, paymentID string) error
+
+	// VerifyKyc se encarga de procesar los archivos de identificación oficial y selfie del usuario
+	VerifyKyc(ctx context.Context, ineFilename string, ine io.Reader, selfieFilename string, selfie io.Reader) (interface{}, error)
 }

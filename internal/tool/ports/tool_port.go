@@ -16,6 +16,11 @@ type CreateToolInput struct {
 	DailyRate      float64
 	Latitude       float64
 	Longitude      float64
+	Brand          string
+	AgeMonths      int
+	City           string
+	State          string
+	ConditionScore float64
 }
 
 type UpdateToolInput struct {
@@ -63,7 +68,7 @@ type ToolService interface {
 	Update(ctx context.Context, id uuid.UUID, ownerID uuid.UUID, inp UpdateToolInput) (*tooldomain.Tool, error)
 	Delete(ctx context.Context, id uuid.UUID, ownerID uuid.UUID) error
 	UploadPhoto(ctx context.Context, inp UploadPhotoInput) (*tooldomain.Tool, error)
-	GetPricingSuggestion(ctx context.Context, estimatedValue float64, scoreCondicion float64, category string, brand string) *PricingSuggestion
+	GetPricingSuggestion(ctx context.Context, estimatedValue float64, scoreCondicion float64, category string, brand string, name string, ageMonths int) *PricingSuggestion
 	PredictCondition(ctx context.Context, filename string, content io.Reader, contentType string) (*PredictConditionOutput, error)
-	AutoValuate(ctx context.Context, name string, scoreCondicion float64, category string, brand string) (*AutoValuateOutput, error)
+	AutoValuate(ctx context.Context, name string, scoreCondicion float64, category string, brand string, ageMonths int) (*AutoValuateOutput, error)
 }

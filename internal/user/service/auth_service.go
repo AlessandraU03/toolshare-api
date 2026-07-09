@@ -1,11 +1,17 @@
 package userservice
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime/multipart"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	apperrors "github.com/yourusername/tool-inventory-api/internal/shared/errors"
@@ -92,7 +98,7 @@ func (s *authService) Login(ctx context.Context, email, password string) (*userp
 
 	token, err := s.tokenProvider.Generate(user.ID, user.Role)
 	if err != nil {
-		return nil, err
+		return nil, ErrInvalidCredentials
 	}
 
 	return &userports.AuthOutput{Token: token, User: user}, nil
@@ -157,4 +163,61 @@ func (s *authService) ConfirmSubscriptionPayment(ctx context.Context, userID uui
 	}
 
 	return s.userRepo.UpdateIsPro(ctx, userID, true)
+}
+
+func (s *authService) VerifyKyc(ctx context.Context, ineFilename string, ine io.Reader, selfieFilename string, selfie io.Reader) (interface{}, error) {
+	bodyBuf := &bytes.Buffer{}
+	bodyWriter := multipart.NewWriter(bodyBuf)
+
+	// Crear campo "ine_image"
+	ineWriter, err := bodyWriter.CreateFormFile("ine_image", ineFilename)
+	if err != nil {
+		return nil, fmt.Errorf("crear campo ine_image: %w", err)
+	}
+	if _, err := io.Copy(ineWriter, ine); err != nil {
+		return nil, fmt.Errorf("copiar ine_image a multipart: %w", err)
+	}
+
+	// Crear campo "selfie_image"
+	selfieWriter, err := bodyWriter.CreateFormFile("selfie_image", selfieFilename)
+	if err != nil {
+		return nil, fmt.Errorf("crear campo selfie_image: %w", err)
+	}
+	if _, err := io.Copy(selfieWriter, selfie); err != nil {
+		return nil, fmt.Errorf("copiar selfie_image a multipart: %w", err)
+	}
+
+	bodyWriter.Close()
+
+	mlBaseURL := os.Getenv("ML_SERVICE_URL")
+	if mlBaseURL == "" {
+		mlBaseURL = "http://localhost:8000"
+	}
+	apiURL := mlBaseURL + "/verify-kyc"
+
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bodyBuf)
+	if err != nil {
+		return nil, fmt.Errorf("crear request KYC a ML: %w", err)
+	}
+
+	req.Header.Set("Content-Type", bodyWriter.FormDataContentType())
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ejecutar request KYC a ML: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("el validador de identidad ML reportó un error (%d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decodificar respuesta KYC: %w", err)
+	}
+
+	return result, nil
 }
