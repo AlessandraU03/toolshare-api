@@ -58,19 +58,20 @@ func main() {
 	// ── Adaptadores secundarios ────────────────────────────────────────────────
 	tokenProvider := jwtadapter.NewProvider()
 
-	var fileStorage ports.FileStorage
+	var fileStorage sharedports.FileStorage
 	supabaseURL := os.Getenv("SUPABASE_URL")
 	supabaseKey := os.Getenv("SUPABASE_KEY")
 	supabaseBucket := os.Getenv("SUPABASE_BUCKET")
+
+	uploadsDir := os.Getenv("UPLOADS_DIR")
+	if uploadsDir == "" {
+		uploadsDir = "./uploads"
+	}
 
 	if supabaseURL != "" && supabaseKey != "" && supabaseBucket != "" {
 		fileStorage = storage.NewSupabaseStorage(supabaseURL, supabaseKey, supabaseBucket)
 		log.Println("Almacenamiento de archivos: Supabase Cloud Storage")
 	} else {
-		uploadsDir := os.Getenv("UPLOADS_DIR")
-		if uploadsDir == "" {
-			uploadsDir = "./uploads"
-		}
 		uploadsBaseURL := os.Getenv("UPLOADS_BASE_URL")
 		if uploadsBaseURL == "" {
 			uploadsBaseURL = "http://localhost:8080/static"
