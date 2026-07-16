@@ -58,15 +58,26 @@ func main() {
 	// ── Adaptadores secundarios ────────────────────────────────────────────────
 	tokenProvider := jwtadapter.NewProvider()
 
-	uploadsDir := os.Getenv("UPLOADS_DIR")
-	if uploadsDir == "" {
-		uploadsDir = "./uploads"
+	var fileStorage ports.FileStorage
+	supabaseURL := os.Getenv("SUPABASE_URL")
+	supabaseKey := os.Getenv("SUPABASE_KEY")
+	supabaseBucket := os.Getenv("SUPABASE_BUCKET")
+
+	if supabaseURL != "" && supabaseKey != "" && supabaseBucket != "" {
+		fileStorage = storage.NewSupabaseStorage(supabaseURL, supabaseKey, supabaseBucket)
+		log.Println("Almacenamiento de archivos: Supabase Cloud Storage")
+	} else {
+		uploadsDir := os.Getenv("UPLOADS_DIR")
+		if uploadsDir == "" {
+			uploadsDir = "./uploads"
+		}
+		uploadsBaseURL := os.Getenv("UPLOADS_BASE_URL")
+		if uploadsBaseURL == "" {
+			uploadsBaseURL = "http://localhost:8080/static"
+		}
+		fileStorage = storage.NewLocalStorage(uploadsDir, uploadsBaseURL)
+		log.Println("Almacenamiento de archivos: Local Disk Storage")
 	}
-	uploadsBaseURL := os.Getenv("UPLOADS_BASE_URL")
-	if uploadsBaseURL == "" {
-		uploadsBaseURL = "http://localhost:8080/static"
-	}
-	fileStorage := storage.NewLocalStorage(uploadsDir, uploadsBaseURL)
 
 	// Proveedor de pagos: Mercado Pago (o Mock si falta la clave de desarrollo)
 	var paymentProvider sharedports.PaymentProvider
