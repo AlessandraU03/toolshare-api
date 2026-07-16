@@ -3,6 +3,7 @@ package router
 import (
 	"github.com/gin-gonic/gin"
 	rentalhandler "github.com/yourusername/tool-inventory-api/internal/rental/handler"
+	reviewhandler "github.com/yourusername/tool-inventory-api/internal/review/handler"
 	sharedmiddleware "github.com/yourusername/tool-inventory-api/internal/shared/middleware"
 	sharedports "github.com/yourusername/tool-inventory-api/internal/shared/ports"
 	toolhandler "github.com/yourusername/tool-inventory-api/internal/tool/handler"
@@ -17,6 +18,7 @@ type Handlers struct {
 	Rental  *rentalhandler.RentalHandler
 	Webhook *rentalhandler.WebhookHandler
 	Admin   *rentalhandler.AdminHandler
+	Review  *reviewhandler.ReviewHandler
 }
 
 func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string) *gin.Engine {
@@ -46,6 +48,7 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string)
 
 	api.GET("/tools", h.Tool.GetTools)
 	api.GET("/tools/:id", h.Tool.GetTool)
+	api.GET("/tools/:id/reviews", h.Review.GetToolReviews)
 	api.GET("/pricing", h.Tool.GetPricingSuggestion)
 
 	// Webhook de Mercado Pago (público, MP llama directamente)
@@ -58,6 +61,8 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string)
 		protected.GET("/auth/me", h.Auth.Me)
 		protected.POST("/auth/subscribe/preference", h.Auth.SubscribePreference)
 		protected.POST("/auth/subscribe/confirm", h.Auth.ConfirmSubscription)
+
+		protected.GET("/users/:id/reviews", h.Review.GetUserReviews)
 
 		// Propietario: gestión de herramientas
 		owner := protected.Group("")
@@ -82,6 +87,7 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string)
 			rentals.POST("/:id/confirm-delivery", h.Rental.ConfirmDelivery)
 			rentals.POST("/:id/confirm-return", h.Rental.ConfirmReturn)
 			rentals.POST("/:id/dispute", h.Rental.Dispute)
+			rentals.POST("/:id/review", h.Review.CreateReview)
 			rentals.DELETE("/:id", h.Rental.CancelRental)
 			rentals.GET("/:id/messages", h.Rental.GetMessages)
 			rentals.POST("/:id/messages", h.Rental.SendMessage)

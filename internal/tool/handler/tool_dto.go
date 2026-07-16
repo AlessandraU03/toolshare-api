@@ -43,6 +43,7 @@ type PricingQueryRequest struct {
 type ToolResponse struct {
 	ID               string  `json:"id"`
 	OwnerID          string  `json:"owner_id"`
+	OwnerName        string  `json:"owner_name"`
 	Name             string  `json:"name"`
 	Description      string  `json:"description"`
 	Category         string  `json:"category"`
@@ -67,6 +68,7 @@ func ToToolResponse(t *tooldomain.Tool) ToolResponse {
 	return ToolResponse{
 		ID:               t.ID.String(),
 		OwnerID:          t.OwnerID.String(),
+		OwnerName:        t.OwnerName,
 		Name:             t.Name,
 		Description:      t.Description,
 		Category:         t.Category,

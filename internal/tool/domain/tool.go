@@ -8,6 +8,7 @@ import (
 type Tool struct {
 	ID             uuid.UUID
 	OwnerID        uuid.UUID
+	OwnerName      string
 	Name           string
 	Description    string
 	Category       string
