@@ -27,12 +27,14 @@ import (
 	userhandler "github.com/yourusername/tool-inventory-api/internal/user/handler"
 	toolhandler "github.com/yourusername/tool-inventory-api/internal/tool/handler"
 	rentalhandler "github.com/yourusername/tool-inventory-api/internal/rental/handler"
+	reviewhandler "github.com/yourusername/tool-inventory-api/internal/review/handler"
 	"github.com/yourusername/tool-inventory-api/internal/shared/router"
 	jwtadapter "github.com/yourusername/tool-inventory-api/internal/shared/jwt"
 	"github.com/yourusername/tool-inventory-api/internal/shared/payment"
 	userpostgres "github.com/yourusername/tool-inventory-api/internal/user/postgres"
 	toolpostgres "github.com/yourusername/tool-inventory-api/internal/tool/postgres"
 	rentalpostgres "github.com/yourusername/tool-inventory-api/internal/rental/postgres"
+	reviewpostgres "github.com/yourusername/tool-inventory-api/internal/review/postgres"
 	"github.com/yourusername/tool-inventory-api/internal/shared/storage"
 	"github.com/yourusername/tool-inventory-api/internal/shared/ports"
 	userservice "github.com/yourusername/tool-inventory-api/internal/user/service"
@@ -40,6 +42,7 @@ import (
 	userdomain "github.com/yourusername/tool-inventory-api/internal/user/domain"
 	toolservice "github.com/yourusername/tool-inventory-api/internal/tool/service"
 	rentalservice "github.com/yourusername/tool-inventory-api/internal/rental/service"
+	reviewservice "github.com/yourusername/tool-inventory-api/internal/review/service"
 	"github.com/yourusername/tool-inventory-api/internal/shared/database"
 
 	_ "github.com/yourusername/tool-inventory-api/docs" // generado por swag init
@@ -93,12 +96,14 @@ func main() {
 	userRepo := userpostgres.NewUserRepository(database.DB)
 	toolRepo := toolpostgres.NewToolRepository(database.DB)
 	rentalRepo := rentalpostgres.NewRentalRepository(database.DB)
+	reviewRepo := reviewpostgres.NewReviewRepository(database.DB)
 
 	// ── Servicios ──────────────────────────────────────────────────────────────
 	authSvc := userservice.NewAuthService(userRepo, tokenProvider, paymentProvider)
 	toolSvc := toolservice.NewToolService(toolRepo, userRepo, fileStorage)
 	rentalSvc := rentalservice.NewRentalService(rentalRepo, toolRepo, paymentProvider)
 	adminSvc := rentalservice.NewAdminService(rentalRepo, toolRepo, paymentProvider)
+	reviewSvc := reviewservice.NewReviewService(reviewRepo, rentalRepo)
 
 	// Sembrar usuario admin si no existe
 	_, _ = authSvc.Register(context.Background(), userports.RegisterInput{
@@ -117,6 +122,7 @@ func main() {
 		Rental:  rentalhandler.NewRentalHandler(rentalSvc),
 		Webhook: rentalhandler.NewWebhookHandler(rentalSvc, userRepo, paymentProvider, os.Getenv("MP_WEBHOOK_SECRET")),
 		Admin:   rentalhandler.NewAdminHandler(adminSvc),
+		Review:  reviewhandler.NewReviewHandler(reviewSvc),
 	}
 
 	if os.Getenv("GIN_MODE") == "release" {
