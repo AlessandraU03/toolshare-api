@@ -6,8 +6,8 @@ import (
 
 // AuthorizePaymentInput contiene los datos necesarios para pre-autorizar un pago.
 type AuthorizePaymentInput struct {
-	Amount      float64           // deducible + monto total de la renta
-	CardToken   string            // token generado por el SDK de Mercado Pago en el frontend
+	Amount      float64 // deducible + monto total de la renta
+	CardToken   string  // token generado por el SDK de Mercado Pago en el frontend
 	Description string
 	PayerEmail  string
 	Metadata    map[string]string // ej. rental_id
@@ -38,6 +38,15 @@ type PaymentInfo struct {
 	ExternalRef string // rental ID guardado como external_reference
 }
 
+// SavedCardInfo representa una tarjeta guardada en el Customer de Mercado Pago.
+type SavedCardInfo struct {
+	MPCardID        string
+	CardBrand       string // "visa", "master", etc.
+	LastFourDigits  string
+	ExpirationMonth int
+	ExpirationYear  int
+}
+
 // PaymentProvider es el puerto de salida para la pasarela de pagos.
 // Implementado por MercadoPagoProvider (producción) o MockPaymentProvider (desarrollo).
 type PaymentProvider interface {
@@ -55,4 +64,13 @@ type PaymentProvider interface {
 
 	// GetPaymentInfo consulta el estado de un pago por su ID.
 	GetPaymentInfo(ctx context.Context, paymentID string) (PaymentInfo, error)
+
+	// CreateCustomer crea un Customer de Mercado Pago para guardar tarjetas a su nombre.
+	CreateCustomer(ctx context.Context, email string) (customerID string, err error)
+
+	// SaveCard asocia un card_token (generado en el cliente) a un Customer existente.
+	SaveCard(ctx context.Context, customerID, cardToken string) (SavedCardInfo, error)
+
+	// DeleteCard elimina una tarjeta guardada de un Customer.
+	DeleteCard(ctx context.Context, customerID, mpCardID string) error
 }

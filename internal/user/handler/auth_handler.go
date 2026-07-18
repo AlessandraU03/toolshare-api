@@ -6,6 +6,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	apperrors "github.com/yourusername/tool-inventory-api/internal/shared/errors"
 	sharedmiddleware "github.com/yourusername/tool-inventory-api/internal/shared/middleware"
 	userports "github.com/yourusername/tool-inventory-api/internal/user/ports"
 	userservice "github.com/yourusername/tool-inventory-api/internal/user/service"
@@ -183,6 +185,93 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, ToUserResponse(user))
+}
+
+// AddCard godoc
+// @Summary      Guardar tarjeta
+// @Description  Guarda una tarjeta a partir de un card_token tokenizado en el cliente contra la API pública de Mercado Pago (POST /v1/card_tokens)
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        body body AddCardRequest true "Token de tarjeta"
+// @Success      201 {object} SavedCardResponse
+// @Failure      400 {object} dto.ErrResponse
+// @Failure      401 {object} dto.ErrResponse
+// @Failure      422 {object} dto.ErrResponse "Mercado Pago rechazó la tarjeta"
+// @Router       /auth/cards [post]
+func (h *AuthHandler) AddCard(c *gin.Context) {
+	userID := sharedmiddleware.UserIDFromContext(c)
+
+	var req AddCardRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	card, err := h.authSvc.AddCard(c.Request.Context(), userID, req.CardToken)
+	if err != nil {
+		if errors.Is(err, userservice.ErrCardFailed) {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+			return
+		}
+		log.Printf("ERROR GUARDANDO TARJETA: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "error interno del servidor"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, ToSavedCardResponse(card))
+}
+
+// ListCards godoc
+// @Summary      Listar tarjetas guardadas
+// @Tags         auth
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200 {array} SavedCardResponse
+// @Failure      401 {object} dto.ErrResponse
+// @Router       /auth/cards [get]
+func (h *AuthHandler) ListCards(c *gin.Context) {
+	userID := sharedmiddleware.UserIDFromContext(c)
+
+	cards, err := h.authSvc.ListCards(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "error al listar tarjetas"})
+		return
+	}
+
+	c.JSON(http.StatusOK, ToSavedCardListResponse(cards))
+}
+
+// DeleteCard godoc
+// @Summary      Eliminar tarjeta guardada
+// @Tags         auth
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id path string true "UUID de la tarjeta"
+// @Success      200 {object} dto.MsgResponse
+// @Failure      401 {object} dto.ErrResponse
+// @Failure      404 {object} dto.ErrResponse
+// @Router       /auth/cards/{id} [delete]
+func (h *AuthHandler) DeleteCard(c *gin.Context) {
+	userID := sharedmiddleware.UserIDFromContext(c)
+
+	cardID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id de tarjeta inválido"})
+		return
+	}
+
+	if err := h.authSvc.DeleteCard(c.Request.Context(), userID, cardID); err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "tarjeta no encontrada"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "error al eliminar la tarjeta"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "tarjeta eliminada correctamente"})
 }
 
 // VerifyKyc maneja la verificación de identidad mediante carga de archivos (INE y Selfie)

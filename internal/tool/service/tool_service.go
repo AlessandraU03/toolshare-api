@@ -14,26 +14,34 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	apperrors "github.com/yourusername/tool-inventory-api/internal/shared/errors"
+	sharedports "github.com/yourusername/tool-inventory-api/internal/shared/ports"
 	tooldomain "github.com/yourusername/tool-inventory-api/internal/tool/domain"
 	toolports "github.com/yourusername/tool-inventory-api/internal/tool/ports"
 	userports "github.com/yourusername/tool-inventory-api/internal/user/ports"
-	sharedports "github.com/yourusername/tool-inventory-api/internal/shared/ports"
-	apperrors "github.com/yourusername/tool-inventory-api/internal/shared/errors"
 )
 
 var (
-	ErrPlanLimitExceeded  = errors.New("Plan Gratuito superado (máximo 3 herramientas). Adquiere Plan Pro para publicar de forma ilimitada.")
-	ErrValueLimitExceeded = errors.New("Plan Gratuito superado (valor máximo $1,500 MXN). Adquiere Plan Pro para publicar activos de mayor valor.")
+	ErrPlanLimitExceeded    = errors.New("Plan Gratuito superado (máximo 3 herramientas). Adquiere Plan Pro para publicar de forma ilimitada.")
+	ErrValueLimitExceeded   = errors.New("Plan Gratuito superado (valor máximo $1,500 MXN). Adquiere Plan Pro para publicar activos de mayor valor.")
+	ErrInsurancePayment     = errors.New("no se pudo procesar el pago del seguro")
+	ErrInsuranceNotApproved = errors.New("el pago del seguro aún no está aprobado")
+	ErrInsuranceRefMismatch = errors.New("el pago no corresponde a esta herramienta")
 )
 
+// InsuranceExternalRefPrefix marca las external_reference de MP que corresponden
+// al pago del seguro mensual de una herramienta (en vez de una renta o suscripción Pro).
+const InsuranceExternalRefPrefix = "ins:"
+
 type toolService struct {
-	toolRepo    toolports.ToolRepository
-	userRepo    userports.UserRepository
-	fileStorage sharedports.FileStorage
+	toolRepo        toolports.ToolRepository
+	userRepo        userports.UserRepository
+	fileStorage     sharedports.FileStorage
+	paymentProvider sharedports.PaymentProvider
 }
 
-func NewToolService(toolRepo toolports.ToolRepository, userRepo userports.UserRepository, fileStorage sharedports.FileStorage) toolports.ToolService {
-	return &toolService{toolRepo: toolRepo, userRepo: userRepo, fileStorage: fileStorage}
+func NewToolService(toolRepo toolports.ToolRepository, userRepo userports.UserRepository, fileStorage sharedports.FileStorage, paymentProvider sharedports.PaymentProvider) toolports.ToolService {
+	return &toolService{toolRepo: toolRepo, userRepo: userRepo, fileStorage: fileStorage, paymentProvider: paymentProvider}
 }
 
 func (s *toolService) Create(ctx context.Context, inp toolports.CreateToolInput) (*tooldomain.Tool, error) {
@@ -77,7 +85,9 @@ func (s *toolService) Create(ctx context.Context, inp toolports.CreateToolInput)
 			}
 			return 0.70
 		}(),
-		PriceSource:    "catalogo_semilla",
+		PriceSource: "catalogo_semilla",
+		// El seguro solo se activa mediante un pago confirmado con Mercado Pago
+		// (ver ConfirmInsurancePayment), nunca directamente al crear/editar.
 	}
 
 	// Aplicar mínimo del 50% del valor en 30 días
@@ -168,6 +178,7 @@ func (s *toolService) Update(ctx context.Context, id uuid.UUID, ownerID uuid.UUI
 	if inp.IsAvailable != nil {
 		tool.IsAvailable = *inp.IsAvailable
 	}
+	// wants_insurance NO se modifica aquí: solo cambia vía ConfirmInsurancePayment.
 
 	return s.toolRepo.Update(ctx, tool)
 }
@@ -181,6 +192,99 @@ func (s *toolService) Delete(ctx context.Context, id uuid.UUID, ownerID uuid.UUI
 		return apperrors.ErrForbidden
 	}
 	return s.toolRepo.Delete(ctx, id)
+}
+
+// CreateInsurancePreference crea una preferencia de Checkout Pro en MP para
+// que el propietario pague la prima mensual del seguro de esta herramienta.
+func (s *toolService) CreateInsurancePreference(ctx context.Context, toolID uuid.UUID, ownerID uuid.UUID) (sharedports.CreatePreferenceOutput, error) {
+	if s.paymentProvider == nil {
+		return sharedports.CreatePreferenceOutput{}, fmt.Errorf("%w: pasarela de pagos no configurada", ErrInsurancePayment)
+	}
+
+	tool, err := s.toolRepo.FindByID(ctx, toolID)
+	if err != nil {
+		return sharedports.CreatePreferenceOutput{}, err
+	}
+	if tool.OwnerID != ownerID {
+		return sharedports.CreatePreferenceOutput{}, apperrors.ErrForbidden
+	}
+
+	owner, err := s.userRepo.FindByID(ctx, ownerID)
+	if err != nil {
+		return sharedports.CreatePreferenceOutput{}, err
+	}
+
+	premium := tool.EstimatedValue * tooldomain.InsuranceMonthlyRate
+
+	notificationURL := os.Getenv("MP_NOTIFICATION_URL")
+	backURL := os.Getenv("MP_BACK_URL")
+	if backURL == "" {
+		backURL = "toolshare://payment"
+	}
+
+	out, err := s.paymentProvider.CreatePreference(ctx, sharedports.CreatePreferenceInput{
+		Title:           fmt.Sprintf("Seguro mensual ToolShare — %s", tool.Name),
+		TotalAmount:     premium,
+		PayerEmail:      owner.Email,
+		ExternalRef:     InsuranceExternalRefPrefix + toolID.String(),
+		NotificationURL: notificationURL,
+		BackURLSuccess:  backURL + "/success",
+		BackURLFailure:  backURL + "/failure",
+		BackURLPending:  backURL + "/pending",
+	})
+	if err != nil {
+		return sharedports.CreatePreferenceOutput{}, fmt.Errorf("%w: %v", ErrInsurancePayment, err)
+	}
+	return out, nil
+}
+
+// ConfirmInsurancePayment verifica directamente con MP que el pago del seguro
+// fue aprobado y corresponde a esta herramienta, y activa wants_insurance.
+func (s *toolService) ConfirmInsurancePayment(ctx context.Context, toolID uuid.UUID, ownerID uuid.UUID, paymentID string) (*tooldomain.Tool, error) {
+	if s.paymentProvider == nil {
+		return nil, fmt.Errorf("%w: pasarela de pagos no configurada", ErrInsurancePayment)
+	}
+
+	info, err := s.paymentProvider.GetPaymentInfo(ctx, paymentID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInsurancePayment, err)
+	}
+
+	tool, err := s.toolRepo.FindByID(ctx, toolID)
+	if err != nil {
+		return nil, err
+	}
+	if tool.OwnerID != ownerID {
+		return nil, apperrors.ErrForbidden
+	}
+
+	if info.ExternalRef != InsuranceExternalRefPrefix+toolID.String() {
+		return nil, ErrInsuranceRefMismatch
+	}
+	if info.Status != "approved" {
+		return nil, ErrInsuranceNotApproved
+	}
+
+	tool.WantsInsurance = true
+	tool.InsuranceMonthlyPremium = tool.CalculateInsurancePremium()
+	return s.toolRepo.Update(ctx, tool)
+}
+
+// CancelInsurance desactiva el seguro de la herramienta. No hay reembolso: la
+// prima ya pagada cubre el mes en curso, la cobertura simplemente no se
+// renueva en el siguiente ciclo.
+func (s *toolService) CancelInsurance(ctx context.Context, toolID uuid.UUID, ownerID uuid.UUID) (*tooldomain.Tool, error) {
+	tool, err := s.toolRepo.FindByID(ctx, toolID)
+	if err != nil {
+		return nil, err
+	}
+	if tool.OwnerID != ownerID {
+		return nil, apperrors.ErrForbidden
+	}
+
+	tool.WantsInsurance = false
+	tool.InsuranceMonthlyPremium = 0
+	return s.toolRepo.Update(ctx, tool)
 }
 
 func (s *toolService) UploadPhoto(ctx context.Context, inp toolports.UploadPhotoInput) (*tooldomain.Tool, error) {
@@ -319,7 +423,7 @@ func (s *toolService) PredictCondition(ctx context.Context, filename string, con
 	}, nil
 }
 
-func (s *toolService) AutoValuate(ctx context.Context, name string, scoreCondicion float64, category string, brand string, ageMonths int) (*toolports.AutoValuateOutput, error) {
+func (s *toolService) AutoValuate(ctx context.Context, name string, scoreCondicion float64, category string, brand string, ageMonths int, precioBaseManual *float64, ticketValidado bool) (*toolports.AutoValuateOutput, error) {
 	mlBaseURL := os.Getenv("ML_SERVICE_URL")
 	if mlBaseURL == "" {
 		mlBaseURL = "http://localhost:8000"
@@ -332,6 +436,10 @@ func (s *toolService) AutoValuate(ctx context.Context, name string, scoreCondici
 		url.QueryEscape(brand),
 		ageMonths,
 	)
+
+	if precioBaseManual != nil {
+		apiURL = fmt.Sprintf("%s&precio_base_manual=%f&ticket_validado=%t", apiURL, *precioBaseManual, ticketValidado)
+	}
 
 	mpToken := os.Getenv("MP_ACCESS_TOKEN")
 	if mpToken != "" {
@@ -356,11 +464,13 @@ func (s *toolService) AutoValuate(ctx context.Context, name string, scoreCondici
 	}
 
 	var result struct {
-		PrecioBaseMercado   float64 `json:"precio_base_mercado"`
-		PrecioRentaSugerido float64 `json:"precio_renta_sugerido"`
-		PrecioRentaMinimo   float64 `json:"precio_renta_minimo"`
-		DetallesCalculo     struct {
-			ModeloMlUtilizado string `json:"modelo_ml_utilizado"`
+		PrecioBaseMercado      float64 `json:"precio_base_mercado"`
+		PrecioRentaSugerido    float64 `json:"precio_renta_sugerido"`
+		PrecioRentaMinimo      float64 `json:"precio_renta_minimo"`
+		RequiereRevisionManual bool    `json:"requiere_revision_manual"`
+		DetallesCalculo        struct {
+			ModeloMlUtilizado    string `json:"modelo_ml_utilizado"`
+			FuentePrecioCatalogo string `json:"fuente_precio_catalogo"`
 		} `json:"detalles_calculo"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -368,10 +478,69 @@ func (s *toolService) AutoValuate(ctx context.Context, name string, scoreCondici
 	}
 
 	return &toolports.AutoValuateOutput{
-		EstimatedValue: result.PrecioBaseMercado,
-		SuggestedDaily: result.PrecioRentaSugerido,
-		MinimumDaily:   result.PrecioRentaMinimo,
-		Description:    fmt.Sprintf("Precio sugerido por Inteligencia Artificial (Mercado Libre API + Regresión). Modelo: %s", result.DetallesCalculo.ModeloMlUtilizado),
+		EstimatedValue:       result.PrecioBaseMercado,
+		SuggestedDaily:       result.PrecioRentaSugerido,
+		MinimumDaily:         result.PrecioRentaMinimo,
+		RequiresManualReview: result.RequiereRevisionManual,
+		Description: fmt.Sprintf("Precio sugerido por minería de datos (fuente: %s). Modelo de renta: %s",
+			result.DetallesCalculo.FuentePrecioCatalogo, result.DetallesCalculo.ModeloMlUtilizado),
+	}, nil
+}
+
+func (s *toolService) ExtractTicketPrice(ctx context.Context, filename string, content io.Reader, contentType string) (*toolports.ExtractTicketPriceOutput, error) {
+	bodyBuf := &bytes.Buffer{}
+	bodyWriter := multipart.NewWriter(bodyBuf)
+
+	fileWriter, err := bodyWriter.CreateFormFile("file", filename)
+	if err != nil {
+		return nil, fmt.Errorf("crear campo file en multipart: %w", err)
+	}
+
+	if _, err := io.Copy(fileWriter, content); err != nil {
+		return nil, fmt.Errorf("copiar archivo a multipart: %w", err)
+	}
+
+	bodyWriter.Close()
+
+	mlBaseURL := os.Getenv("ML_SERVICE_URL")
+	if mlBaseURL == "" {
+		mlBaseURL = "http://localhost:8000"
+	}
+	apiURL := mlBaseURL + "/extract-ticket-price"
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bodyBuf)
+	if err != nil {
+		return nil, fmt.Errorf("crear request a ML: %w", err)
+	}
+
+	req.Header.Set("Content-Type", bodyWriter.FormDataContentType())
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ejecutar request a ML: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("ML respondió con error (%d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		Valid           bool    `json:"valid"`
+		PrecioDetectado float64 `json:"precio_detectado"`
+		Confianza       string  `json:"confianza"`
+		Error           string  `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decodificar respuesta de ML: %w", err)
+	}
+
+	return &toolports.ExtractTicketPriceOutput{
+		Valid:         result.Valid,
+		DetectedPrice: result.PrecioDetectado,
+		Confidence:    result.Confianza,
+		Error:         result.Error,
 	}, nil
 }
 

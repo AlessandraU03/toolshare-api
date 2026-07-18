@@ -1,8 +1,8 @@
 package rentalhandler
 
 import (
-	"time"
 	rentaldomain "github.com/yourusername/tool-inventory-api/internal/rental/domain"
+	"time"
 )
 
 // ── Request ───────────────────────────────────────────────────────────────────
@@ -11,7 +11,7 @@ type CreateRentalRequest struct {
 	ToolID        string `json:"tool_id"        binding:"required,uuid"`
 	StartDate     string `json:"start_date"     binding:"required"`
 	EndDate       string `json:"end_date"       binding:"required"`
-	PaymentMethod string `json:"payment_method"` // "card" o "cash"
+	PaymentMethod string `json:"payment_method"` // solo "card" es aceptado
 	CardToken     string `json:"card_token"`
 	PayerEmail    string `json:"payer_email"`
 }
@@ -37,9 +37,9 @@ type RentalResponse struct {
 	OwnerName     string  `json:"owner_name"`
 	RequesterName string  `json:"requester_name"`
 	StartDate     string  `json:"start_date"`
-	EndDate     string  `json:"end_date"`
-	DailyRate   float64 `json:"daily_rate"`
-	TotalAmount float64 `json:"total_amount"`
+	EndDate       string  `json:"end_date"`
+	DailyRate     float64 `json:"daily_rate"`
+	TotalAmount   float64 `json:"total_amount"`
 	Status        string  `json:"status"`
 	PaymentMethod string  `json:"payment_method"`
 
@@ -47,6 +47,7 @@ type RentalResponse struct {
 	MPPaymentID      string  `json:"mp_payment_id,omitempty"`
 	PaymentStatus    string  `json:"payment_status,omitempty"`
 	DeductibleAmount float64 `json:"deductible_amount"`
+	CommissionAmount float64 `json:"commission_amount"`
 
 	// Apretón de manos: entrega
 	OwnerConfirmedDelivery     bool `json:"owner_confirmed_delivery"`
@@ -86,6 +87,7 @@ func ToRentalResponse(r *rentaldomain.Rental) RentalResponse {
 		MPPaymentID:                r.MPPaymentID,
 		PaymentStatus:              r.PaymentStatus,
 		DeductibleAmount:           r.DeductibleAmount,
+		CommissionAmount:           r.CommissionAmount,
 		OwnerConfirmedDelivery:     r.OwnerConfirmedDelivery,
 		RequesterConfirmedDelivery: r.RequesterConfirmedDelivery,
 		ContractHash:               r.ContractHash,

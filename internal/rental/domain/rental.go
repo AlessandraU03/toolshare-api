@@ -17,6 +17,12 @@ const (
 	RentalStatusDisputed  RentalStatus = "disputed"
 )
 
+// ServiceCommissionRate es la comisión de servicio de ToolShare: un cargo
+// adicional y NO reembolsable sobre el monto de la renta (ingreso de la
+// plataforma), distinto del depósito de garantía (que sí se libera si no hay
+// disputa).
+const ServiceCommissionRate = 0.10
+
 // Rental representa una renta de herramienta.
 type Rental struct {
 	ID            uuid.UUID
@@ -32,10 +38,11 @@ type Rental struct {
 	Status        RentalStatus
 
 	// Método y Pasarela de Pagos
-	PaymentMethod    string // "card" o "cash"
+	PaymentMethod    string // "card" (único método soportado)
 	MPPaymentID      string
 	PaymentStatus    string
-	DeductibleAmount float64 // 10 % del valor estimado de la herramienta
+	DeductibleAmount float64 // 10 % del valor estimado de la herramienta (depósito reembolsable)
+	CommissionAmount float64 // comisión de servicio de ToolShare (no reembolsable)
 
 	// Paso 2: apretón de manos en la entrega
 	OwnerConfirmedDelivery     bool
@@ -166,4 +173,10 @@ func (r *Rental) CalculateTotal() float64 {
 		days = 1
 	}
 	return r.DailyRate * days
+}
+
+// CalculateCommission calcula la comisión de servicio de ToolShare sobre el
+// monto de la renta. Debe llamarse después de CalculateTotal().
+func (r *Rental) CalculateCommission() float64 {
+	return r.TotalAmount * ServiceCommissionRate
 }

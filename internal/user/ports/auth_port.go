@@ -39,4 +39,9 @@ type AuthService interface {
 
 	// VerifyKyc se encarga de procesar los archivos de identificación oficial y selfie del usuario
 	VerifyKyc(ctx context.Context, ineFilename string, ine io.Reader, selfieFilename string, selfie io.Reader) (interface{}, error)
+
+	// AddCard tokeniza (ya hecho en el cliente) y guarda una tarjeta en el Customer de MP del usuario.
+	AddCard(ctx context.Context, userID uuid.UUID, cardToken string) (*userdomain.SavedCard, error)
+	ListCards(ctx context.Context, userID uuid.UUID) ([]*userdomain.SavedCard, error)
+	DeleteCard(ctx context.Context, userID uuid.UUID, cardID uuid.UUID) error
 }

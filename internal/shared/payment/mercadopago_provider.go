@@ -33,12 +33,12 @@ func NewMercadoPagoProvider(accessToken string) sharedports.PaymentProvider {
 
 type mpPaymentRequest struct {
 	TransactionAmount float64           `json:"transaction_amount"`
-	Token            string            `json:"token"`
-	Description      string            `json:"description"`
-	Installments     int               `json:"installments"`
-	Capture          bool              `json:"capture"`
-	Payer            mpPayer           `json:"payer"`
-	Metadata         map[string]string `json:"metadata,omitempty"`
+	Token             string            `json:"token"`
+	Description       string            `json:"description"`
+	Installments      int               `json:"installments"`
+	Capture           bool              `json:"capture"`
+	Payer             mpPayer           `json:"payer"`
+	Metadata          map[string]string `json:"metadata,omitempty"`
 }
 
 type mpPayer struct {
@@ -92,17 +92,43 @@ type mpPaymentDetail struct {
 	ExternalRef string `json:"external_reference"`
 }
 
+type mpCustomerRequest struct {
+	Email string `json:"email"`
+}
+
+type mpCustomerResponse struct {
+	ID      string `json:"id"`
+	Message string `json:"message,omitempty"`
+}
+
+type mpCardRequest struct {
+	Token string `json:"token"`
+}
+
+type mpPaymentMethodInfo struct {
+	ID string `json:"id"`
+}
+
+type mpCardResponse struct {
+	ID              string              `json:"id"`
+	LastFourDigits  string              `json:"last_four_digits"`
+	ExpirationMonth int                 `json:"expiration_month"`
+	ExpirationYear  int                 `json:"expiration_year"`
+	PaymentMethod   mpPaymentMethodInfo `json:"payment_method"`
+	Message         string              `json:"message,omitempty"`
+}
+
 // ── Métodos públicos ──────────────────────────────────────────────────────────
 
 func (p *MercadoPagoProvider) Authorize(ctx context.Context, inp sharedports.AuthorizePaymentInput) (string, error) {
 	body := mpPaymentRequest{
 		TransactionAmount: inp.Amount,
-		Token:            inp.CardToken,
-		Description:      inp.Description,
-		Installments:     1,
-		Capture:          false, // pre-autorización: congelar sin cobrar
-		Payer:            mpPayer{Email: inp.PayerEmail},
-		Metadata:         inp.Metadata,
+		Token:             inp.CardToken,
+		Description:       inp.Description,
+		Installments:      1,
+		Capture:           false, // pre-autorización: congelar sin cobrar
+		Payer:             mpPayer{Email: inp.PayerEmail},
+		Metadata:          inp.Metadata,
 	}
 
 	result, err := p.post(ctx, "/v1/payments", body)
@@ -212,6 +238,97 @@ func (p *MercadoPagoProvider) GetPaymentInfo(ctx context.Context, paymentID stri
 		Status:      detail.Status,
 		ExternalRef: detail.ExternalRef,
 	}, nil
+}
+
+// CreateCustomer crea un Customer de Mercado Pago para poder guardarle tarjetas.
+func (p *MercadoPagoProvider) CreateCustomer(ctx context.Context, email string) (string, error) {
+	data, err := json.Marshal(mpCustomerRequest{Email: email})
+	if err != nil {
+		return "", fmt.Errorf("marshal customer: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, mpBaseURL+"/v1/customers", bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+p.accessToken)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("MP crear customer: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result mpCustomerResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("decode MP customer: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("MP %d: %s", resp.StatusCode, result.Message)
+	}
+	return result.ID, nil
+}
+
+// SaveCard asocia un card_token (tokenizado en el cliente contra la API
+// pública de MP) a un Customer existente, dejando la tarjeta guardada para
+// futuros cobros sin volver a pedir los datos completos.
+func (p *MercadoPagoProvider) SaveCard(ctx context.Context, customerID, cardToken string) (sharedports.SavedCardInfo, error) {
+	data, err := json.Marshal(mpCardRequest{Token: cardToken})
+	if err != nil {
+		return sharedports.SavedCardInfo{}, fmt.Errorf("marshal card: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, mpBaseURL+"/v1/customers/"+customerID+"/cards", bytes.NewReader(data))
+	if err != nil {
+		return sharedports.SavedCardInfo{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+p.accessToken)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return sharedports.SavedCardInfo{}, fmt.Errorf("MP guardar tarjeta: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result mpCardResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return sharedports.SavedCardInfo{}, fmt.Errorf("decode MP card: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		return sharedports.SavedCardInfo{}, fmt.Errorf("MP %d: %s", resp.StatusCode, result.Message)
+	}
+
+	return sharedports.SavedCardInfo{
+		MPCardID:        result.ID,
+		CardBrand:       result.PaymentMethod.ID,
+		LastFourDigits:  result.LastFourDigits,
+		ExpirationMonth: result.ExpirationMonth,
+		ExpirationYear:  result.ExpirationYear,
+	}, nil
+}
+
+// DeleteCard elimina una tarjeta guardada de un Customer.
+func (p *MercadoPagoProvider) DeleteCard(ctx context.Context, customerID, mpCardID string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, mpBaseURL+"/v1/customers/"+customerID+"/cards/"+mpCardID, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+p.accessToken)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("MP eliminar tarjeta: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		var result mpCardResponse
+		_ = json.NewDecoder(resp.Body).Decode(&result)
+		return fmt.Errorf("MP %d: %s", resp.StatusCode, result.Message)
+	}
+	return nil
 }
 
 // ── Helpers HTTP ──────────────────────────────────────────────────────────────

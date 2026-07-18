@@ -42,3 +42,21 @@ func (p *MockPaymentProvider) GetPaymentInfo(_ context.Context, paymentID string
 		ExternalRef: "",
 	}, nil
 }
+
+func (p *MockPaymentProvider) CreateCustomer(_ context.Context, _ string) (string, error) {
+	return fmt.Sprintf("MOCK_CUSTOMER_%d", time.Now().UnixMilli()), nil
+}
+
+func (p *MockPaymentProvider) SaveCard(_ context.Context, _ string, cardToken string) (sharedports.SavedCardInfo, error) {
+	return sharedports.SavedCardInfo{
+		MPCardID:        fmt.Sprintf("MOCK_CARD_%d", time.Now().UnixMilli()),
+		CardBrand:       "visa",
+		LastFourDigits:  "1111",
+		ExpirationMonth: 12,
+		ExpirationYear:  time.Now().Year() + 2,
+	}, nil
+}
+
+func (p *MockPaymentProvider) DeleteCard(_ context.Context, _ string, _ string) error {
+	return nil
+}

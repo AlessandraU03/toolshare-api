@@ -53,6 +53,38 @@ func ToAuthResponse(out *userports.AuthOutput) AuthResponse {
 	}
 }
 
+type AddCardRequest struct {
+	CardToken string `json:"card_token" binding:"required" example:"ff8080814c11e237014c1ff593b57b4"`
+}
+
+type SavedCardResponse struct {
+	ID              string `json:"id"`
+	CardBrand       string `json:"card_brand"`
+	LastFourDigits  string `json:"last_four_digits"`
+	ExpirationMonth int    `json:"expiration_month"`
+	ExpirationYear  int    `json:"expiration_year"`
+	CreatedAt       string `json:"created_at"`
+}
+
+func ToSavedCardResponse(c *userdomain.SavedCard) SavedCardResponse {
+	return SavedCardResponse{
+		ID:              c.ID.String(),
+		CardBrand:       c.CardBrand,
+		LastFourDigits:  c.LastFourDigits,
+		ExpirationMonth: c.ExpirationMonth,
+		ExpirationYear:  c.ExpirationYear,
+		CreatedAt:       c.CreatedAt.Format(time.RFC3339),
+	}
+}
+
+func ToSavedCardListResponse(cards []*userdomain.SavedCard) []SavedCardResponse {
+	resp := make([]SavedCardResponse, 0, len(cards))
+	for _, c := range cards {
+		resp = append(resp, ToSavedCardResponse(c))
+	}
+	return resp
+}
+
 func ToUserResponse(u *userdomain.User) UserResponse {
 	return UserResponse{
 		ID:        u.ID.String(),

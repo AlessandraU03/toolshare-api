@@ -2,6 +2,7 @@ package toolhandler
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -10,12 +11,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/yourusername/tool-inventory-api/internal/shared"
+	apperrors "github.com/yourusername/tool-inventory-api/internal/shared/errors"
 	sharedmiddleware "github.com/yourusername/tool-inventory-api/internal/shared/middleware"
 	toolports "github.com/yourusername/tool-inventory-api/internal/tool/ports"
+	toolservice "github.com/yourusername/tool-inventory-api/internal/tool/service"
 )
 
 const (
-	maxPhotoSize  = 10 << 20 // 10 MB
+	maxPhotoSize = 10 << 20 // 10 MB
 )
 
 var allowedImageTypes = map[string]bool{
@@ -285,9 +288,9 @@ func (h *ToolHandler) UploadPhoto(c *gin.Context) {
 
 	if !allowedImageTypes[detectedType] {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error":          "tipo de archivo no permitido",
-			"detected_type":  detectedType,
-			"allowed_types":  []string{"image/jpeg", "image/png", "image/webp", "image/gif"},
+			"error":         "tipo de archivo no permitido",
+			"detected_type": detectedType,
+			"allowed_types": []string{"image/jpeg", "image/png", "image/webp", "image/gif"},
 		})
 		return
 	}
@@ -396,6 +399,8 @@ func (h *ToolHandler) AutoValuate(c *gin.Context) {
 	category := c.Query("category")
 	scoreCondicionStr := c.Query("score_condicion")
 	ageMonthsStr := c.Query("age_months")
+	precioBaseManualStr := c.Query("precio_base_manual")
+	ticketValidadoStr := c.Query("ticket_validado")
 
 	if name == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "el parámetro 'name' es requerido"})
@@ -422,16 +427,205 @@ func (h *ToolHandler) AutoValuate(c *gin.Context) {
 		}
 	}
 
-	out, err := h.toolSvc.AutoValuate(c.Request.Context(), name, scoreCondicion, category, brand, ageMonths)
+	// precio_base_manual llega junto con ticket_validado=true cuando el
+	// propietario confirmó el monto detectado por /tools/extract-ticket-price.
+	var precioBaseManual *float64
+	if precioBaseManualStr != "" {
+		val, err := strconv.ParseFloat(precioBaseManualStr, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "el parámetro 'precio_base_manual' debe ser numérico"})
+			return
+		}
+		precioBaseManual = &val
+	}
+	ticketValidado := ticketValidadoStr == "true"
+
+	out, err := h.toolSvc.AutoValuate(c.Request.Context(), name, scoreCondicion, category, brand, ageMonths, precioBaseManual, ticketValidado)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, AutoValuateResponse{
-		EstimatedValue: out.EstimatedValue,
-		SuggestedDaily: out.SuggestedDaily,
-		MinimumDaily:   out.MinimumDaily,
-		Description:    out.Description,
+		EstimatedValue:       out.EstimatedValue,
+		SuggestedDaily:       out.SuggestedDaily,
+		MinimumDaily:         out.MinimumDaily,
+		RequiresManualReview: out.RequiresManualReview,
+		Description:          out.Description,
 	})
+}
+
+// ExtractTicketPrice godoc
+// @Summary      Leer precio de un ticket de compra
+// @Description  Extrae por OCR el monto pagado en una foto de ticket/factura. Es la fuente de precio más confiable para el motor de pricing
+// @Tags         herramientas
+// @Accept       multipart/form-data
+// @Produce      json
+// @Security     BearerAuth
+// @Param        photo formData file true "Foto del ticket de compra (JPEG/PNG/WEBP/GIF)"
+// @Success      200 {object} ExtractTicketPriceResponse
+// @Failure      400 {object} dto.ErrResponse "Archivo inválido o tipo no permitido"
+// @Failure      401 {object} dto.ErrResponse
+// @Failure      413 {object} dto.ErrResponse "Imagen demasiado grande (máx 10 MB)"
+// @Router       /tools/extract-ticket-price [post]
+func (h *ToolHandler) ExtractTicketPrice(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxPhotoSize+1024)
+
+	file, header, err := c.Request.FormFile("photo")
+	if err != nil {
+		if strings.Contains(err.Error(), "too large") {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "la imagen no puede superar 10 MB"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "se requiere el archivo 'photo'"})
+		return
+	}
+	defer file.Close()
+
+	if header.Size > maxPhotoSize {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "la imagen no puede superar 10 MB"})
+		return
+	}
+
+	buf := make([]byte, 512)
+	n, err := file.Read(buf)
+	if err != nil && err != io.EOF {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no se pudo leer el archivo"})
+		return
+	}
+	detectedType := http.DetectContentType(buf[:n])
+
+	if !allowedImageTypes[detectedType] {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":         "tipo de archivo no permitido",
+			"detected_type": detectedType,
+		})
+		return
+	}
+
+	fullContent := io.MultiReader(bytes.NewReader(buf[:n]), file)
+	out, err := h.toolSvc.ExtractTicketPrice(c.Request.Context(), header.Filename, fullContent, detectedType)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, ExtractTicketPriceResponse{
+		Valid:         out.Valid,
+		DetectedPrice: out.DetectedPrice,
+		Confidence:    out.Confidence,
+		Error:         out.Error,
+	})
+}
+
+// CreateInsurancePreference godoc
+// @Summary      Crear preferencia de pago para el seguro
+// @Description  Crea una preferencia en Mercado Pago para pagar la prima mensual del seguro de esta herramienta y devuelve el init_point para el WebView
+// @Tags         herramientas
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id path string true "UUID de la herramienta"
+// @Success      200 {object} InsurancePreferenceResponse
+// @Failure      401 {object} dto.ErrResponse
+// @Failure      403 {object} dto.ErrResponse
+// @Failure      422 {object} dto.ErrResponse "Error al crear preferencia en MP"
+// @Router       /tools/{id}/insurance/preference [post]
+func (h *ToolHandler) CreateInsurancePreference(c *gin.Context) {
+	id, err := shared.ParseUUID(c, "id")
+	if err != nil {
+		return
+	}
+	ownerID := sharedmiddleware.UserIDFromContext(c)
+
+	out, err := h.toolSvc.CreateInsurancePreference(c.Request.Context(), id, ownerID)
+	if err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrForbidden):
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		case errors.Is(err, toolservice.ErrInsurancePayment):
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, InsurancePreferenceResponse{
+		InitPoint:    out.InitPoint,
+		PreferenceID: out.PreferenceID,
+	})
+}
+
+// ConfirmInsurancePayment godoc
+// @Summary      Confirmar pago del seguro
+// @Description  Verifica el estado de un pago directamente contra Mercado Pago y activa el seguro de la herramienta si está aprobado
+// @Tags         herramientas
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id path string true "UUID de la herramienta"
+// @Param        body body ConfirmInsuranceRequest true "ID del pago devuelto por MP"
+// @Success      200 {object} ToolResponse
+// @Failure      401 {object} dto.ErrResponse
+// @Failure      402 {object} dto.ErrResponse "Pago no aprobado o no corresponde a esta herramienta"
+// @Router       /tools/{id}/insurance/confirm [post]
+func (h *ToolHandler) ConfirmInsurancePayment(c *gin.Context) {
+	id, err := shared.ParseUUID(c, "id")
+	if err != nil {
+		return
+	}
+	ownerID := sharedmiddleware.UserIDFromContext(c)
+
+	var req ConfirmInsuranceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	tool, err := h.toolSvc.ConfirmInsurancePayment(c.Request.Context(), id, ownerID, req.PaymentID)
+	if err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrForbidden):
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		case errors.Is(err, toolservice.ErrInsuranceNotApproved), errors.Is(err, toolservice.ErrInsuranceRefMismatch):
+			c.JSON(http.StatusPaymentRequired, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, ToToolResponse(tool))
+}
+
+// CancelInsurance godoc
+// @Summary      Cancelar el seguro de una herramienta
+// @Description  Desactiva el seguro; no genera reembolso de la prima ya pagada, solo detiene la cobertura
+// @Tags         herramientas
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id path string true "UUID de la herramienta"
+// @Success      200 {object} ToolResponse
+// @Failure      401 {object} dto.ErrResponse
+// @Failure      403 {object} dto.ErrResponse
+// @Router       /tools/{id}/insurance/cancel [post]
+func (h *ToolHandler) CancelInsurance(c *gin.Context) {
+	id, err := shared.ParseUUID(c, "id")
+	if err != nil {
+		return
+	}
+	ownerID := sharedmiddleware.UserIDFromContext(c)
+
+	tool, err := h.toolSvc.CancelInsurance(c.Request.Context(), id, ownerID)
+	if err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrForbidden):
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, ToToolResponse(tool))
 }

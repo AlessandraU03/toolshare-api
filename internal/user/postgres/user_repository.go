@@ -7,9 +7,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	apperrors "github.com/yourusername/tool-inventory-api/internal/shared/errors"
 	userdomain "github.com/yourusername/tool-inventory-api/internal/user/domain"
 	userports "github.com/yourusername/tool-inventory-api/internal/user/ports"
-	apperrors "github.com/yourusername/tool-inventory-api/internal/shared/errors"
 )
 
 type UserRepository struct {
@@ -72,4 +72,83 @@ func (r *UserRepository) UpdateIsPro(ctx context.Context, id uuid.UUID, isPro bo
 		return apperrors.ErrNotFound
 	}
 	return nil
+}
+
+func (r *UserRepository) GetMPCustomerID(ctx context.Context, id uuid.UUID) (string, error) {
+	var customerID *string
+	err := r.db.QueryRow(ctx, `SELECT mp_customer_id FROM users WHERE id = $1`, id).Scan(&customerID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", apperrors.ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("consultar mp_customer_id: %w", err)
+	}
+	if customerID == nil {
+		return "", nil
+	}
+	return *customerID, nil
+}
+
+func (r *UserRepository) SetMPCustomerID(ctx context.Context, id uuid.UUID, customerID string) error {
+	tag, err := r.db.Exec(ctx, `UPDATE users SET mp_customer_id = $1, updated_at = now() WHERE id = $2`, customerID, id)
+	if err != nil {
+		return fmt.Errorf("guardar mp_customer_id: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+func (r *UserRepository) SaveCard(ctx context.Context, card *userdomain.SavedCard) (*userdomain.SavedCard, error) {
+	query := `
+		INSERT INTO saved_cards (user_id, mp_card_id, card_brand, last_four_digits, expiration_month, expiration_year)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, user_id, mp_card_id, card_brand, last_four_digits, expiration_month, expiration_year, created_at
+	`
+	saved := &userdomain.SavedCard{}
+	err := r.db.QueryRow(ctx, query,
+		card.UserID, card.MPCardID, card.CardBrand, card.LastFourDigits, card.ExpirationMonth, card.ExpirationYear,
+	).Scan(&saved.ID, &saved.UserID, &saved.MPCardID, &saved.CardBrand, &saved.LastFourDigits, &saved.ExpirationMonth, &saved.ExpirationYear, &saved.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("guardar tarjeta: %w", err)
+	}
+	return saved, nil
+}
+
+func (r *UserRepository) ListCards(ctx context.Context, userID uuid.UUID) ([]*userdomain.SavedCard, error) {
+	query := `
+		SELECT id, user_id, mp_card_id, card_brand, last_four_digits, expiration_month, expiration_year, created_at
+		FROM saved_cards WHERE user_id = $1 ORDER BY created_at DESC
+	`
+	rows, err := r.db.Query(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("listar tarjetas: %w", err)
+	}
+	defer rows.Close()
+
+	var cards []*userdomain.SavedCard
+	for rows.Next() {
+		c := &userdomain.SavedCard{}
+		if err := rows.Scan(&c.ID, &c.UserID, &c.MPCardID, &c.CardBrand, &c.LastFourDigits, &c.ExpirationMonth, &c.ExpirationYear, &c.CreatedAt); err != nil {
+			return nil, fmt.Errorf("escanear tarjeta: %w", err)
+		}
+		cards = append(cards, c)
+	}
+	return cards, rows.Err()
+}
+
+func (r *UserRepository) DeleteCard(ctx context.Context, userID uuid.UUID, cardID uuid.UUID) (string, error) {
+	var mpCardID string
+	err := r.db.QueryRow(ctx,
+		`DELETE FROM saved_cards WHERE id = $1 AND user_id = $2 RETURNING mp_card_id`,
+		cardID, userID,
+	).Scan(&mpCardID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", apperrors.ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("eliminar tarjeta: %w", err)
+	}
+	return mpCardID, nil
 }

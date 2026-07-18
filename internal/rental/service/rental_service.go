@@ -13,15 +13,16 @@ import (
 	"github.com/google/uuid"
 	rentaldomain "github.com/yourusername/tool-inventory-api/internal/rental/domain"
 	rentalports "github.com/yourusername/tool-inventory-api/internal/rental/ports"
-	"github.com/yourusername/tool-inventory-api/internal/shared/pubsub"
 	sharedports "github.com/yourusername/tool-inventory-api/internal/shared/ports"
+	"github.com/yourusername/tool-inventory-api/internal/shared/pubsub"
 	toolports "github.com/yourusername/tool-inventory-api/internal/tool/ports"
 )
 
 var (
-	ErrToolNotAvailable = errors.New("la herramienta no está disponible para rentar")
-	ErrUnauthorized     = errors.New("no tienes permiso para esta acción")
-	ErrPaymentFailed    = errors.New("el pago no pudo procesarse")
+	ErrToolNotAvailable     = errors.New("la herramienta no está disponible para rentar")
+	ErrUnauthorized         = errors.New("no tienes permiso para esta acción")
+	ErrPaymentFailed        = errors.New("el pago no pudo procesarse")
+	ErrPaymentMethodNotCard = errors.New("solo se acepta pago con tarjeta")
 )
 
 type rentalService struct {
@@ -68,6 +69,9 @@ func (s *rentalService) Create(ctx context.Context, inp rentalports.CreateRental
 	if method == "" {
 		method = "card"
 	}
+	if method != "card" {
+		return nil, ErrPaymentMethodNotCard
+	}
 
 	rental := &rentaldomain.Rental{
 		ToolID:           inp.ToolID,
@@ -81,10 +85,11 @@ func (s *rentalService) Create(ctx context.Context, inp rentalports.CreateRental
 		Status:           rentaldomain.RentalStatusPending,
 	}
 	rental.TotalAmount = rental.CalculateTotal()
+	rental.CommissionAmount = rental.CalculateCommission()
 
-	// Pre-autorizar pago si se proporcionó token de tarjeta y el método es tarjeta
-	if method == "card" && inp.CardToken != "" && s.paymentProvider != nil {
-		totalToFreeze := rental.TotalAmount + deductible
+	// Pre-autorizar pago si se proporcionó token de tarjeta
+	if inp.CardToken != "" && s.paymentProvider != nil {
+		totalToFreeze := rental.TotalAmount + rental.CommissionAmount + deductible
 		paymentID, err := s.paymentProvider.Authorize(ctx, sharedports.AuthorizePaymentInput{
 			Amount:      totalToFreeze,
 			CardToken:   inp.CardToken,
@@ -198,9 +203,11 @@ func (s *rentalService) ConfirmReturn(ctx context.Context, rentalID uuid.UUID, u
 	if updated.Status == rentaldomain.RentalStatusCompleted {
 		_ = s.toolRepo.SetAvailability(ctx, updated.ToolID, true)
 
-		// Captura parcial: cobra solo la renta (el depósito se libera automáticamente)
+		// Captura parcial: cobra la renta + comisión de servicio de ToolShare
+		// (el depósito de garantía se libera automáticamente al no haber disputa)
 		if s.paymentProvider != nil && updated.MPPaymentID != "" {
-			if err := s.paymentProvider.Capture(ctx, updated.MPPaymentID, updated.TotalAmount); err != nil {
+			amountToCapture := updated.TotalAmount + updated.CommissionAmount
+			if err := s.paymentProvider.Capture(ctx, updated.MPPaymentID, amountToCapture); err != nil {
 				log.Printf("WARN: no se pudo capturar pago %s: %v", updated.MPPaymentID, err)
 			} else {
 				updated.PaymentStatus = "captured"
@@ -294,7 +301,7 @@ func (s *rentalService) CreatePreference(ctx context.Context, rentalID uuid.UUID
 		return sharedports.CreatePreferenceOutput{}, ErrUnauthorized
 	}
 
-	totalToFreeze := rental.TotalAmount + rental.DeductibleAmount
+	totalToFreeze := rental.TotalAmount + rental.CommissionAmount + rental.DeductibleAmount
 
 	notificationURL := os.Getenv("MP_NOTIFICATION_URL")
 	backURL := os.Getenv("MP_BACK_URL")

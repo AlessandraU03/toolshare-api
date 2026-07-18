@@ -22,24 +22,23 @@ func NewToolRepository(db *pgxpool.Pool) toolports.ToolRepository {
 	return &ToolRepository{db: db}
 }
 
+const toolCols = `id, owner_id, (SELECT name FROM users WHERE id = owner_id) AS owner_name, name, description, category, photo_url, estimated_value, daily_rate, latitude, longitude, is_available, condition_score, brand, age_months, city, state, price_source, wants_insurance, insurance_monthly_premium, created_at, updated_at`
+
 func (r *ToolRepository) Create(ctx context.Context, tool *tooldomain.Tool) (*tooldomain.Tool, error) {
 	query := `
-		INSERT INTO tools (owner_id, name, description, category, photo_url, estimated_value, daily_rate, latitude, longitude, is_available, condition_score, brand, age_months, city, state, price_source)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-		RETURNING id, owner_id, (SELECT name FROM users WHERE id = owner_id) AS owner_name, name, description, category, photo_url, estimated_value, daily_rate, latitude, longitude, is_available, condition_score, brand, age_months, city, state, price_source, created_at, updated_at
-	`
+		INSERT INTO tools (owner_id, name, description, category, photo_url, estimated_value, daily_rate, latitude, longitude, is_available, condition_score, brand, age_months, city, state, price_source, wants_insurance, insurance_monthly_premium)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+		RETURNING ` + toolCols
 	return r.scanTool(r.db.QueryRow(ctx, query,
 		tool.OwnerID, tool.Name, tool.Description, tool.Category,
 		tool.PhotoURL, tool.EstimatedValue, tool.DailyRate, tool.Latitude, tool.Longitude, tool.IsAvailable,
 		tool.ConditionScore, tool.Brand, tool.AgeMonths, tool.City, tool.State, tool.PriceSource,
+		tool.WantsInsurance, tool.InsuranceMonthlyPremium,
 	))
 }
 
 func (r *ToolRepository) FindByID(ctx context.Context, id uuid.UUID) (*tooldomain.Tool, error) {
-	query := `
-		SELECT id, owner_id, (SELECT name FROM users WHERE id = owner_id) AS owner_name, name, description, category, photo_url, estimated_value, daily_rate, latitude, longitude, is_available, condition_score, brand, age_months, city, state, price_source, created_at, updated_at
-		FROM tools WHERE id = $1
-	`
+	query := `SELECT ` + toolCols + ` FROM tools WHERE id = $1`
 	t, err := r.scanTool(r.db.QueryRow(ctx, query, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperrors.ErrNotFound
@@ -73,10 +72,7 @@ func (r *ToolRepository) FindAll(ctx context.Context, filter toolports.ToolFilte
 		idx++
 	}
 
-	query := `
-		SELECT id, owner_id, (SELECT name FROM users WHERE id = owner_id) AS owner_name, name, description, category, photo_url, estimated_value, daily_rate, latitude, longitude, is_available, condition_score, brand, age_months, city, state, price_source, created_at, updated_at
-		FROM tools
-	`
+	query := `SELECT ` + toolCols + ` FROM tools`
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
@@ -95,6 +91,7 @@ func (r *ToolRepository) FindAll(ctx context.Context, filter toolports.ToolFilte
 			&tool.ID, &tool.OwnerID, &tool.OwnerName, &tool.Name, &tool.Description, &tool.Category,
 			&tool.PhotoURL, &tool.EstimatedValue, &tool.DailyRate, &tool.Latitude, &tool.Longitude, &tool.IsAvailable,
 			&tool.ConditionScore, &tool.Brand, &tool.AgeMonths, &tool.City, &tool.State, &tool.PriceSource,
+			&tool.WantsInsurance, &tool.InsuranceMonthlyPremium,
 			&tool.CreatedAt, &tool.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("escanear herramienta: %w", err)
@@ -109,14 +106,16 @@ func (r *ToolRepository) Update(ctx context.Context, tool *tooldomain.Tool) (*to
 		UPDATE tools
 		SET name = $1, description = $2, category = $3, photo_url = $4,
 		    estimated_value = $5, daily_rate = $6, latitude = $7, longitude = $8, is_available = $9,
-		    condition_score = $10, brand = $11, age_months = $12, city = $13, state = $14, price_source = $15
-		WHERE id = $16
-		RETURNING id, owner_id, (SELECT name FROM users WHERE id = owner_id) AS owner_name, name, description, category, photo_url, estimated_value, daily_rate, latitude, longitude, is_available, condition_score, brand, age_months, city, state, price_source, created_at, updated_at
+		    condition_score = $10, brand = $11, age_months = $12, city = $13, state = $14, price_source = $15,
+		    wants_insurance = $16, insurance_monthly_premium = $17
+		WHERE id = $18
+		RETURNING ` + toolCols + `
 	`
 	return r.scanTool(r.db.QueryRow(ctx, query,
 		tool.Name, tool.Description, tool.Category, tool.PhotoURL,
 		tool.EstimatedValue, tool.DailyRate, tool.Latitude, tool.Longitude, tool.IsAvailable,
 		tool.ConditionScore, tool.Brand, tool.AgeMonths, tool.City, tool.State, tool.PriceSource,
+		tool.WantsInsurance, tool.InsuranceMonthlyPremium,
 		tool.ID,
 	))
 }
@@ -157,6 +156,7 @@ func (r *ToolRepository) scanTool(row pgx.Row) (*tooldomain.Tool, error) {
 		&tool.ID, &tool.OwnerID, &tool.OwnerName, &tool.Name, &tool.Description, &tool.Category,
 		&tool.PhotoURL, &tool.EstimatedValue, &tool.DailyRate, &tool.Latitude, &tool.Longitude, &tool.IsAvailable,
 		&tool.ConditionScore, &tool.Brand, &tool.AgeMonths, &tool.City, &tool.State, &tool.PriceSource,
+		&tool.WantsInsurance, &tool.InsuranceMonthlyPremium,
 		&tool.CreatedAt, &tool.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {

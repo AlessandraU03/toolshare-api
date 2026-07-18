@@ -24,26 +24,26 @@ import (
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 
-	userhandler "github.com/yourusername/tool-inventory-api/internal/user/handler"
-	toolhandler "github.com/yourusername/tool-inventory-api/internal/tool/handler"
 	rentalhandler "github.com/yourusername/tool-inventory-api/internal/rental/handler"
-	reviewhandler "github.com/yourusername/tool-inventory-api/internal/review/handler"
-	"github.com/yourusername/tool-inventory-api/internal/shared/router"
-	jwtadapter "github.com/yourusername/tool-inventory-api/internal/shared/jwt"
-	"github.com/yourusername/tool-inventory-api/internal/shared/payment"
-	userpostgres "github.com/yourusername/tool-inventory-api/internal/user/postgres"
-	toolpostgres "github.com/yourusername/tool-inventory-api/internal/tool/postgres"
 	rentalpostgres "github.com/yourusername/tool-inventory-api/internal/rental/postgres"
-	reviewpostgres "github.com/yourusername/tool-inventory-api/internal/review/postgres"
-	"github.com/yourusername/tool-inventory-api/internal/shared/storage"
-	"github.com/yourusername/tool-inventory-api/internal/shared/ports"
-	userservice "github.com/yourusername/tool-inventory-api/internal/user/service"
-	userports "github.com/yourusername/tool-inventory-api/internal/user/ports"
-	userdomain "github.com/yourusername/tool-inventory-api/internal/user/domain"
-	toolservice "github.com/yourusername/tool-inventory-api/internal/tool/service"
 	rentalservice "github.com/yourusername/tool-inventory-api/internal/rental/service"
+	reviewhandler "github.com/yourusername/tool-inventory-api/internal/review/handler"
+	reviewpostgres "github.com/yourusername/tool-inventory-api/internal/review/postgres"
 	reviewservice "github.com/yourusername/tool-inventory-api/internal/review/service"
 	"github.com/yourusername/tool-inventory-api/internal/shared/database"
+	jwtadapter "github.com/yourusername/tool-inventory-api/internal/shared/jwt"
+	"github.com/yourusername/tool-inventory-api/internal/shared/payment"
+	"github.com/yourusername/tool-inventory-api/internal/shared/ports"
+	"github.com/yourusername/tool-inventory-api/internal/shared/router"
+	"github.com/yourusername/tool-inventory-api/internal/shared/storage"
+	toolhandler "github.com/yourusername/tool-inventory-api/internal/tool/handler"
+	toolpostgres "github.com/yourusername/tool-inventory-api/internal/tool/postgres"
+	toolservice "github.com/yourusername/tool-inventory-api/internal/tool/service"
+	userdomain "github.com/yourusername/tool-inventory-api/internal/user/domain"
+	userhandler "github.com/yourusername/tool-inventory-api/internal/user/handler"
+	userports "github.com/yourusername/tool-inventory-api/internal/user/ports"
+	userpostgres "github.com/yourusername/tool-inventory-api/internal/user/postgres"
+	userservice "github.com/yourusername/tool-inventory-api/internal/user/service"
 
 	_ "github.com/yourusername/tool-inventory-api/docs" // generado por swag init
 )
@@ -100,7 +100,7 @@ func main() {
 
 	// ── Servicios ──────────────────────────────────────────────────────────────
 	authSvc := userservice.NewAuthService(userRepo, tokenProvider, paymentProvider)
-	toolSvc := toolservice.NewToolService(toolRepo, userRepo, fileStorage)
+	toolSvc := toolservice.NewToolService(toolRepo, userRepo, fileStorage, paymentProvider)
 	rentalSvc := rentalservice.NewRentalService(rentalRepo, toolRepo, paymentProvider)
 	adminSvc := rentalservice.NewAdminService(rentalRepo, toolRepo, paymentProvider)
 	reviewSvc := reviewservice.NewReviewService(reviewRepo, rentalRepo)

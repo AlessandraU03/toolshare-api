@@ -10,6 +10,7 @@ import (
 	userdomain "github.com/yourusername/tool-inventory-api/internal/user/domain"
 	userhandler "github.com/yourusername/tool-inventory-api/internal/user/handler"
 	"net/http"
+	"os"
 )
 
 type Handlers struct {
@@ -30,6 +31,11 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string)
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
+	// Config pública y segura de exponer al cliente (nunca la clave secreta de MP).
+	r.GET("/api/config", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"mp_public_key": os.Getenv("MP_PUBLIC_KEY")})
 	})
 
 	r.GET("/favicon.ico", func(c *gin.Context) {
@@ -61,6 +67,9 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string)
 		protected.GET("/auth/me", h.Auth.Me)
 		protected.POST("/auth/subscribe/preference", h.Auth.SubscribePreference)
 		protected.POST("/auth/subscribe/confirm", h.Auth.ConfirmSubscription)
+		protected.POST("/auth/cards", h.Auth.AddCard)
+		protected.GET("/auth/cards", h.Auth.ListCards)
+		protected.DELETE("/auth/cards/:id", h.Auth.DeleteCard)
 
 		protected.GET("/users/:id/reviews", h.Review.GetUserReviews)
 
@@ -74,7 +83,11 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string)
 			owner.DELETE("/tools/:id", h.Tool.DeleteTool)
 			owner.POST("/tools/:id/photo", h.Tool.UploadPhoto)
 			owner.POST("/tools/predict-condition", h.Tool.PredictCondition)
+			owner.POST("/tools/extract-ticket-price", h.Tool.ExtractTicketPrice)
 			owner.GET("/tools/auto-valuate", h.Tool.AutoValuate)
+			owner.POST("/tools/:id/insurance/preference", h.Tool.CreateInsurancePreference)
+			owner.POST("/tools/:id/insurance/confirm", h.Tool.ConfirmInsurancePayment)
+			owner.POST("/tools/:id/insurance/cancel", h.Tool.CancelInsurance)
 		}
 
 		// Rentas

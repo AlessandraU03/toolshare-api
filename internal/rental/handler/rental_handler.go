@@ -26,7 +26,7 @@ func NewRentalHandler(rentalSvc rentalports.RentalService) *RentalHandler {
 
 // CreateRental godoc
 // @Summary      Solicitar renta
-// @Description  El solicitante crea una solicitud de renta. Si se envía card_token, los fondos (renta + depósito 10%) quedan congelados en Mercado Pago
+// @Description  El solicitante crea una solicitud de renta. Solo se acepta pago con tarjeta. Si se envía card_token, los fondos (renta + comisión de servicio 10% + depósito de garantía 10%) quedan congelados en Mercado Pago
 // @Tags         rentas
 // @Accept       json
 // @Produce      json
@@ -86,6 +86,8 @@ func (h *RentalHandler) CreateRental(c *gin.Context) {
 		switch {
 		case errors.Is(err, rentalservice.ErrToolNotAvailable):
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		case errors.Is(err, rentalservice.ErrPaymentMethodNotCard):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, rentalservice.ErrPaymentFailed):
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 		case err.Error() != "" && strings.Contains(err.Error(), "riesgo_colusion"):

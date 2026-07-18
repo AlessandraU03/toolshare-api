@@ -1,8 +1,8 @@
 package toolhandler
 
 import (
-	"time"
 	tooldomain "github.com/yourusername/tool-inventory-api/internal/tool/domain"
+	"time"
 )
 
 type CreateToolRequest struct {
@@ -41,52 +41,56 @@ type PricingQueryRequest struct {
 }
 
 type ToolResponse struct {
-	ID               string  `json:"id"`
-	OwnerID          string  `json:"owner_id"`
-	OwnerName        string  `json:"owner_name"`
-	Name             string  `json:"name"`
-	Description      string  `json:"description"`
-	Category         string  `json:"category"`
-	PhotoURL         string  `json:"photo_url,omitempty"`
-	EstimatedValue   float64 `json:"estimated_value"`
-	DailyRate        float64 `json:"daily_rate"`
-	SuggestedMinRate float64 `json:"suggested_min_daily_rate"`
-	Latitude         float64 `json:"latitude"`
-	Longitude        float64 `json:"longitude"`
-	IsAvailable      bool    `json:"is_available"`
-	ConditionScore   float64 `json:"condition_score"`
-	Brand            string  `json:"brand"`
-	AgeMonths        int     `json:"age_months"`
-	City             string  `json:"city"`
-	State            string  `json:"state"`
-	PriceSource      string  `json:"price_source"`
-	CreatedAt        string  `json:"created_at"`
-	UpdatedAt        string  `json:"updated_at"`
+	ID                      string  `json:"id"`
+	OwnerID                 string  `json:"owner_id"`
+	OwnerName               string  `json:"owner_name"`
+	Name                    string  `json:"name"`
+	Description             string  `json:"description"`
+	Category                string  `json:"category"`
+	PhotoURL                string  `json:"photo_url,omitempty"`
+	EstimatedValue          float64 `json:"estimated_value"`
+	DailyRate               float64 `json:"daily_rate"`
+	SuggestedMinRate        float64 `json:"suggested_min_daily_rate"`
+	Latitude                float64 `json:"latitude"`
+	Longitude               float64 `json:"longitude"`
+	IsAvailable             bool    `json:"is_available"`
+	ConditionScore          float64 `json:"condition_score"`
+	Brand                   string  `json:"brand"`
+	AgeMonths               int     `json:"age_months"`
+	City                    string  `json:"city"`
+	State                   string  `json:"state"`
+	PriceSource             string  `json:"price_source"`
+	WantsInsurance          bool    `json:"wants_insurance"`
+	InsuranceMonthlyPremium float64 `json:"insurance_monthly_premium"`
+	CreatedAt               string  `json:"created_at"`
+	UpdatedAt               string  `json:"updated_at"`
 }
 
 func ToToolResponse(t *tooldomain.Tool) ToolResponse {
 	return ToolResponse{
-		ID:               t.ID.String(),
-		OwnerID:          t.OwnerID.String(),
-		OwnerName:        t.OwnerName,
-		Name:             t.Name,
-		Description:      t.Description,
-		Category:         t.Category,
-		PhotoURL:         t.PhotoURL,
-		EstimatedValue:   t.EstimatedValue,
-		DailyRate:        t.DailyRate,
-		SuggestedMinRate: t.SuggestedDailyRate(),
-		Latitude:         t.Latitude,
-		Longitude:        t.Longitude,
-		IsAvailable:      t.IsAvailable,
-		ConditionScore:   t.ConditionScore,
-		Brand:            t.Brand,
-		AgeMonths:        t.AgeMonths,
-		City:             t.City,
-		State:            t.State,
-		PriceSource:      t.PriceSource,
-		CreatedAt:        t.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:        t.UpdatedAt.Format(time.RFC3339),
+		ID:                      t.ID.String(),
+		OwnerID:                 t.OwnerID.String(),
+		OwnerName:               t.OwnerName,
+		Name:                    t.Name,
+		Description:             t.Description,
+		Category:                t.Category,
+		PhotoURL:                t.PhotoURL,
+		EstimatedValue:          t.EstimatedValue,
+		DailyRate:               t.DailyRate,
+		SuggestedMinRate:        t.SuggestedDailyRate(),
+		Latitude:                t.Latitude,
+		Longitude:               t.Longitude,
+		IsAvailable:             t.IsAvailable,
+		ConditionScore:          t.ConditionScore,
+		Brand:                   t.Brand,
+		AgeMonths:               t.AgeMonths,
+		City:                    t.City,
+		State:                   t.State,
+		PriceSource:             t.PriceSource,
+		WantsInsurance:          t.WantsInsurance,
+		InsuranceMonthlyPremium: t.InsuranceMonthlyPremium,
+		CreatedAt:               t.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:               t.UpdatedAt.Format(time.RFC3339),
 	}
 }
 
@@ -104,8 +108,25 @@ type PredictConditionResponse struct {
 }
 
 type AutoValuateResponse struct {
-	EstimatedValue float64 `json:"estimated_value"`
-	SuggestedDaily float64 `json:"suggested_daily_rate"`
-	MinimumDaily   float64 `json:"minimum_daily_rate"`
-	Description    string  `json:"description"`
+	EstimatedValue       float64 `json:"estimated_value"`
+	SuggestedDaily       float64 `json:"suggested_daily_rate"`
+	MinimumDaily         float64 `json:"minimum_daily_rate"`
+	RequiresManualReview bool    `json:"requires_manual_review"`
+	Description          string  `json:"description"`
+}
+
+type ExtractTicketPriceResponse struct {
+	Valid         bool    `json:"valid"`
+	DetectedPrice float64 `json:"detected_price"`
+	Confidence    string  `json:"confidence"`
+	Error         string  `json:"error,omitempty"`
+}
+
+type InsurancePreferenceResponse struct {
+	InitPoint    string `json:"init_point"`
+	PreferenceID string `json:"preference_id"`
+}
+
+type ConfirmInsuranceRequest struct {
+	PaymentID string `json:"payment_id" binding:"required"`
 }

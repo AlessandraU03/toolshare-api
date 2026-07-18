@@ -27,6 +27,7 @@ var (
 	ErrPaymentFailed      = errors.New("no se pudo crear la preferencia de pago")
 	ErrPaymentNotApproved = errors.New("el pago aún no está aprobado")
 	ErrPaymentRefMismatch = errors.New("el pago no corresponde a este usuario")
+	ErrCardFailed         = errors.New("no se pudo guardar la tarjeta")
 )
 
 // SubscriptionExternalRefPrefix marca las external_reference de MP que corresponden
@@ -220,4 +221,68 @@ func (s *authService) VerifyKyc(ctx context.Context, ineFilename string, ine io.
 	}
 
 	return result, nil
+}
+
+// AddCard guarda una tarjeta tokenizada en el Customer de Mercado Pago del
+// usuario, creando el Customer si aún no existe.
+func (s *authService) AddCard(ctx context.Context, userID uuid.UUID, cardToken string) (*userdomain.SavedCard, error) {
+	if s.paymentProvider == nil {
+		return nil, fmt.Errorf("%w: pasarela de pagos no configurada", ErrCardFailed)
+	}
+
+	customerID, err := s.userRepo.GetMPCustomerID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if customerID == "" {
+		user, err := s.userRepo.FindByID(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+		customerID, err = s.paymentProvider.CreateCustomer(ctx, user.Email)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrCardFailed, err)
+		}
+		if err := s.userRepo.SetMPCustomerID(ctx, userID, customerID); err != nil {
+			return nil, err
+		}
+	}
+
+	saved, err := s.paymentProvider.SaveCard(ctx, customerID, cardToken)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrCardFailed, err)
+	}
+
+	card := &userdomain.SavedCard{
+		UserID:          userID,
+		MPCardID:        saved.MPCardID,
+		CardBrand:       saved.CardBrand,
+		LastFourDigits:  saved.LastFourDigits,
+		ExpirationMonth: saved.ExpirationMonth,
+		ExpirationYear:  saved.ExpirationYear,
+	}
+	return s.userRepo.SaveCard(ctx, card)
+}
+
+func (s *authService) ListCards(ctx context.Context, userID uuid.UUID) ([]*userdomain.SavedCard, error) {
+	return s.userRepo.ListCards(ctx, userID)
+}
+
+func (s *authService) DeleteCard(ctx context.Context, userID uuid.UUID, cardID uuid.UUID) error {
+	mpCardID, err := s.userRepo.DeleteCard(ctx, userID, cardID)
+	if err != nil {
+		return err
+	}
+	if s.paymentProvider == nil || mpCardID == "" {
+		return nil
+	}
+
+	customerID, err := s.userRepo.GetMPCustomerID(ctx, userID)
+	if err != nil || customerID == "" {
+		return nil
+	}
+	// La tarjeta ya se eliminó localmente; si MP falla solo queda huérfana en su lado.
+	_ = s.paymentProvider.DeleteCard(ctx, customerID, mpCardID)
+	return nil
 }

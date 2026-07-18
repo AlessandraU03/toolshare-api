@@ -9,9 +9,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	apperrors "github.com/yourusername/tool-inventory-api/internal/shared/errors"
 	rentaldomain "github.com/yourusername/tool-inventory-api/internal/rental/domain"
 	rentalports "github.com/yourusername/tool-inventory-api/internal/rental/ports"
+	apperrors "github.com/yourusername/tool-inventory-api/internal/shared/errors"
 )
 
 type RentalRepository struct {
@@ -28,7 +28,7 @@ const rentalCols = `
 	daily_rate, total_amount, status, payment_method,
 	owner_confirmed_delivery, requester_confirmed_delivery,
 	requester_confirmed_return, owner_confirmed_return,
-	mp_payment_id, payment_status, deductible_amount,
+	mp_payment_id, payment_status, deductible_amount, commission_amount,
 	contract_hash, delivery_lat, delivery_lng, delivery_at,
 	dispute_reason,
 	created_at, updated_at,
@@ -45,9 +45,9 @@ func (r *RentalRepository) Create(ctx context.Context, rental *rentaldomain.Rent
 			daily_rate, total_amount, status, payment_method,
 			owner_confirmed_delivery, requester_confirmed_delivery,
 			requester_confirmed_return, owner_confirmed_return,
-			mp_payment_id, payment_status, deductible_amount
+			mp_payment_id, payment_status, deductible_amount, commission_amount
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
-		          NULLIF($14,''), NULLIF($15,''), $16)
+		          NULLIF($14,''), NULLIF($15,''), $16, $17)
 		RETURNING ` + rentalCols
 
 	return r.scanRental(r.db.QueryRow(ctx, query,
@@ -56,7 +56,7 @@ func (r *RentalRepository) Create(ctx context.Context, rental *rentaldomain.Rent
 		rental.DailyRate, rental.TotalAmount, rental.Status, rental.PaymentMethod,
 		rental.OwnerConfirmedDelivery, rental.RequesterConfirmedDelivery,
 		rental.RequesterConfirmedReturn, rental.OwnerConfirmedReturn,
-		rental.MPPaymentID, rental.PaymentStatus, rental.DeductibleAmount,
+		rental.MPPaymentID, rental.PaymentStatus, rental.DeductibleAmount, rental.CommissionAmount,
 	))
 }
 
@@ -125,7 +125,7 @@ func (r *RentalRepository) GetAdminStats(ctx context.Context) (int, int, int, fl
 			COUNT(*)::int,
 			COUNT(*) FILTER (WHERE status = 'active')::int,
 			COUNT(*) FILTER (WHERE status = 'disputed')::int,
-			COALESCE(SUM(total_amount + deductible_amount) FILTER (WHERE payment_status = 'authorized'), 0)::float8
+			COALESCE(SUM(total_amount + deductible_amount + commission_amount) FILTER (WHERE payment_status = 'authorized'), 0)::float8
 		FROM rentals`
 	var total, active, disputed int
 	var frozen float64
@@ -206,7 +206,7 @@ func (r *RentalRepository) scan(scanFn func(...any) error, rental *rentaldomain.
 		&rental.DailyRate, &rental.TotalAmount, &rental.Status, &rental.PaymentMethod,
 		&rental.OwnerConfirmedDelivery, &rental.RequesterConfirmedDelivery,
 		&rental.RequesterConfirmedReturn, &rental.OwnerConfirmedReturn,
-		&mpPaymentID, &paymentStatus, &rental.DeductibleAmount,
+		&mpPaymentID, &paymentStatus, &rental.DeductibleAmount, &rental.CommissionAmount,
 		&contractHash, &deliveryLat, &deliveryLng, &deliveryAt,
 		&disputeReason,
 		&rental.CreatedAt, &rental.UpdatedAt,
