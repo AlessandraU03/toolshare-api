@@ -290,7 +290,9 @@ func (h *AuthHandler) VerifyKyc(c *gin.Context) {
 	}
 	defer selfieFile.Close()
 
-	res, err := h.authSvc.VerifyKyc(c.Request.Context(), ineHeader.Filename, ineFile, selfieHeader.Filename, selfieFile)
+	curp := c.PostForm("curp")
+
+	res, err := h.authSvc.VerifyKyc(c.Request.Context(), ineHeader.Filename, ineFile, selfieHeader.Filename, selfieFile, curp)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

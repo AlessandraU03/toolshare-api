@@ -166,7 +166,7 @@ func (s *authService) ConfirmSubscriptionPayment(ctx context.Context, userID uui
 	return s.userRepo.UpdateIsPro(ctx, userID, true)
 }
 
-func (s *authService) VerifyKyc(ctx context.Context, ineFilename string, ine io.Reader, selfieFilename string, selfie io.Reader) (interface{}, error) {
+func (s *authService) VerifyKyc(ctx context.Context, ineFilename string, ine io.Reader, selfieFilename string, selfie io.Reader, curp string) (interface{}, error) {
 	bodyBuf := &bytes.Buffer{}
 	bodyWriter := multipart.NewWriter(bodyBuf)
 
@@ -186,6 +186,13 @@ func (s *authService) VerifyKyc(ctx context.Context, ineFilename string, ine io.
 	}
 	if _, err := io.Copy(selfieWriter, selfie); err != nil {
 		return nil, fmt.Errorf("copiar selfie_image a multipart: %w", err)
+	}
+
+	// Agregar campo "curp" si existe
+	if curp != "" {
+		if err := bodyWriter.WriteField("curp", curp); err != nil {
+			return nil, fmt.Errorf("escribir campo curp: %w", err)
+		}
 	}
 
 	bodyWriter.Close()

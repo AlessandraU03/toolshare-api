@@ -38,7 +38,7 @@ type AuthService interface {
 	ConfirmSubscriptionPayment(ctx context.Context, userID uuid.UUID, paymentID string) error
 
 	// VerifyKyc se encarga de procesar los archivos de identificación oficial y selfie del usuario
-	VerifyKyc(ctx context.Context, ineFilename string, ine io.Reader, selfieFilename string, selfie io.Reader) (interface{}, error)
+	VerifyKyc(ctx context.Context, ineFilename string, ine io.Reader, selfieFilename string, selfie io.Reader, curp string) (interface{}, error)
 
 	// AddCard tokeniza (ya hecho en el cliente) y guarda una tarjeta en el Customer de MP del usuario.
 	AddCard(ctx context.Context, userID uuid.UUID, cardToken string) (*userdomain.SavedCard, error)
