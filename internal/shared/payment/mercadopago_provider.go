@@ -506,6 +506,10 @@ func (p *MercadoPagoProvider) RefreshSellerToken(ctx context.Context, refreshTok
 	return result.AccessToken, result.RefreshToken, expiresAt, nil
 }
 
+func (p *MercadoPagoProvider) IsMock() bool {
+	return false
+}
+
 func (p *MercadoPagoProvider) oauthTokenRequest(ctx context.Context, body mpOAuthTokenRequest) (*mpOAuthTokenResponse, error) {
 	data, err := json.Marshal(body)
 	if err != nil {

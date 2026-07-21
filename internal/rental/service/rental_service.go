@@ -61,6 +61,10 @@ func (s *rentalService) sellerAccessToken(ctx context.Context, ownerID uuid.UUID
 // adminService para obtener (y renovar si hace falta) el access_token de
 // Mercado Pago del propietario, usado para crear/gestionar pagos con split.
 func resolveSellerAccessToken(ctx context.Context, userRepo userports.UserRepository, paymentProvider sharedports.PaymentProvider, ownerID uuid.UUID) (string, error) {
+	if paymentProvider.IsMock() {
+		return "", nil
+	}
+
 	account, err := userRepo.GetMPSellerAccount(ctx, ownerID)
 	if err != nil {
 		return "", err

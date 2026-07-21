@@ -109,4 +109,9 @@ type PaymentProvider interface {
 	// RefreshSellerToken renueva el access_token de un vendedor usando su
 	// refresh_token, cuando el guardado ya expiró o está por expirar.
 	RefreshSellerToken(ctx context.Context, refreshToken string) (accessToken, newRefreshToken string, expiresAt time.Time, err error)
+
+	// IsMock indica si el provider es el simulado de desarrollo (true) o uno
+	// real que mueve dinero (false). Se usa para no exigir que el propietario
+	// haya vinculado su cuenta de MP cuando no hay credenciales reales.
+	IsMock() bool
 }

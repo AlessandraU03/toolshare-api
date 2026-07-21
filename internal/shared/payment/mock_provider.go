@@ -102,3 +102,7 @@ func (p *MockPaymentProvider) RefreshSellerToken(_ context.Context, refreshToken
 		time.Now().Add(180 * 24 * time.Hour),
 		nil
 }
+
+func (p *MockPaymentProvider) IsMock() bool {
+	return true
+}
