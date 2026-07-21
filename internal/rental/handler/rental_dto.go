@@ -11,7 +11,7 @@ type CreateRentalRequest struct {
 	ToolID        string `json:"tool_id"        binding:"required,uuid"`
 	StartDate     string `json:"start_date"     binding:"required"`
 	EndDate       string `json:"end_date"       binding:"required"`
-	PaymentMethod string `json:"payment_method"` // solo "card" es aceptado
+	PaymentMethod string `json:"payment_method"` // "card" o "cash"
 	CardToken     string `json:"card_token"`
 	PayerEmail    string `json:"payer_email"`
 }

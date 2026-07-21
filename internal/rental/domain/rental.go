@@ -38,7 +38,7 @@ type Rental struct {
 	Status        RentalStatus
 
 	// Método y Pasarela de Pagos
-	PaymentMethod    string // "card" (único método soportado)
+	PaymentMethod    string // "card" o "cash"
 	MPPaymentID      string
 	PaymentStatus    string
 	DeductibleAmount float64 // 10 % del valor estimado de la herramienta (depósito reembolsable)

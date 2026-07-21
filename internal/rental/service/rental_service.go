@@ -112,7 +112,7 @@ func (s *rentalService) Create(ctx context.Context, inp rentalports.CreateRental
 	if method == "" {
 		method = "card"
 	}
-	if method != "card" {
+	if method != "card" && method != "cash" {
 		return nil, ErrPaymentMethodNotCard
 	}
 

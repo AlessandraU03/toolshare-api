@@ -27,7 +27,7 @@ func NewRentalHandler(rentalSvc rentalports.RentalService) *RentalHandler {
 
 // CreateRental godoc
 // @Summary      Solicitar renta
-// @Description  El solicitante crea una solicitud de renta. Solo se acepta pago con tarjeta. Si se envía card_token, los fondos (renta + comisión de servicio 5% + depósito de garantía 10%) quedan congelados en Mercado Pago
+// @Description  El solicitante crea una solicitud de renta, con pago por tarjeta o efectivo. Si se envía card_token, los fondos (renta + comisión de servicio 5% + depósito de garantía 10%) quedan congelados en Mercado Pago; en efectivo el intercambio es directo entre las partes y ToolShare no interviene
 // @Tags         rentas
 // @Accept       json
 // @Produce      json
