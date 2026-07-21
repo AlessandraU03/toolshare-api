@@ -95,12 +95,13 @@ func main() {
 
 	userRepo := userpostgres.NewUserRepository(database.DB)
 	toolRepo := toolpostgres.NewToolRepository(database.DB)
+	toolPhotoRepo := toolpostgres.NewToolPhotoRepository(database.DB)
 	rentalRepo := rentalpostgres.NewRentalRepository(database.DB)
 	reviewRepo := reviewpostgres.NewReviewRepository(database.DB)
 
 	// ── Servicios ──────────────────────────────────────────────────────────────
 	authSvc := userservice.NewAuthService(userRepo, tokenProvider, paymentProvider)
-	toolSvc := toolservice.NewToolService(toolRepo, userRepo, fileStorage, paymentProvider)
+	toolSvc := toolservice.NewToolService(toolRepo, toolPhotoRepo, userRepo, fileStorage, paymentProvider)
 	rentalSvc := rentalservice.NewRentalService(rentalRepo, toolRepo, paymentProvider)
 	adminSvc := rentalservice.NewAdminService(rentalRepo, toolRepo, paymentProvider)
 	reviewSvc := reviewservice.NewReviewService(reviewRepo, rentalRepo)

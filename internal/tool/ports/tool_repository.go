@@ -21,3 +21,11 @@ type ToolRepository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	SetAvailability(ctx context.Context, id uuid.UUID, available bool) error
 }
+
+// ToolPhotoRepository persiste las fotos individuales de una herramienta.
+// Ver tooldomain.ToolPhoto: cada foto trae su propio score de condición
+// verificado por la CNN en el servidor.
+type ToolPhotoRepository interface {
+	Create(ctx context.Context, photo *tooldomain.ToolPhoto) (*tooldomain.ToolPhoto, error)
+	FindByToolID(ctx context.Context, toolID uuid.UUID) ([]*tooldomain.ToolPhoto, error)
+}

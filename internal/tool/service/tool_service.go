@@ -35,13 +35,14 @@ const InsuranceExternalRefPrefix = "ins:"
 
 type toolService struct {
 	toolRepo        toolports.ToolRepository
+	toolPhotoRepo   toolports.ToolPhotoRepository
 	userRepo        userports.UserRepository
 	fileStorage     sharedports.FileStorage
 	paymentProvider sharedports.PaymentProvider
 }
 
-func NewToolService(toolRepo toolports.ToolRepository, userRepo userports.UserRepository, fileStorage sharedports.FileStorage, paymentProvider sharedports.PaymentProvider) toolports.ToolService {
-	return &toolService{toolRepo: toolRepo, userRepo: userRepo, fileStorage: fileStorage, paymentProvider: paymentProvider}
+func NewToolService(toolRepo toolports.ToolRepository, toolPhotoRepo toolports.ToolPhotoRepository, userRepo userports.UserRepository, fileStorage sharedports.FileStorage, paymentProvider sharedports.PaymentProvider) toolports.ToolService {
+	return &toolService{toolRepo: toolRepo, toolPhotoRepo: toolPhotoRepo, userRepo: userRepo, fileStorage: fileStorage, paymentProvider: paymentProvider}
 }
 
 func (s *toolService) Create(ctx context.Context, inp toolports.CreateToolInput) (*tooldomain.Tool, error) {
@@ -74,8 +75,11 @@ func (s *toolService) Create(ctx context.Context, inp toolports.CreateToolInput)
 		DailyRate:      inp.DailyRate,
 		Latitude:       inp.Latitude,
 		Longitude:      inp.Longitude,
-		IsAvailable:    true,
-		Brand:          inp.Brand,
+		// No disponible hasta subir el minimo de fotos (MinRequiredPhotos):
+		// UploadPhoto la activa automaticamente al cumplirse. Antes de este
+		// cambio la herramienta quedaba publicada sin ninguna foto real.
+		IsAvailable: false,
+		Brand:       inp.Brand,
 		AgeMonths:      inp.AgeMonths,
 		City:           inp.City,
 		State:          inp.State,
@@ -287,6 +291,14 @@ func (s *toolService) CancelInsurance(ctx context.Context, toolID uuid.UUID, own
 	return s.toolRepo.Update(ctx, tool)
 }
 
+// MinRequiredPhotos es el minimo de fotos (en distintos angulos, verificadas
+// por la CNN en el servidor) que debe tener una herramienta antes de
+// publicarse como disponible. Con menos de esto, alcanza con que UNA sola
+// foto oculte el desgaste real para inflar el precio — con el minimo y la
+// regla del peor score (ver peorScore) hace falta que todas las fotos
+// escondan el daño a la vez.
+const MinRequiredPhotos = 2
+
 func (s *toolService) UploadPhoto(ctx context.Context, inp toolports.UploadPhotoInput) (*tooldomain.Tool, error) {
 	tool, err := s.toolRepo.FindByID(ctx, inp.ToolID)
 	if err != nil {
@@ -296,19 +308,76 @@ func (s *toolService) UploadPhoto(ctx context.Context, inp toolports.UploadPhoto
 		return nil, apperrors.ErrForbidden
 	}
 
+	// Se lee el contenido completo una sola vez porque hace falta enviarlo
+	// dos veces (storage + CNN) y un io.Reader solo se puede consumir una vez.
+	content, err := io.ReadAll(inp.Content)
+	if err != nil {
+		return nil, fmt.Errorf("leer contenido de la foto: %w", err)
+	}
+
 	filename := fmt.Sprintf("tools/%s_%d_%s", inp.ToolID.String(), time.Now().Unix(), inp.Filename)
-	url, err := s.fileStorage.Upload(ctx, filename, inp.Content, inp.ContentType)
+	url, err := s.fileStorage.Upload(ctx, filename, bytes.NewReader(content), inp.ContentType)
 	if err != nil {
 		return nil, err
 	}
 
-	tool.PhotoURL = url
+	// El score de condición de ESTA foto SIEMPRE se calcula aquí, sobre el
+	// archivo real que se acaba de subir — nunca se confía en un
+	// condition_score que el cliente haya podido mandar. Si el servicio de
+	// ML no responde, se usa el score que ya tenía la herramienta (o el
+	// default de creación) en vez de tumbar la subida por un problema ajeno
+	// al usuario. Esta es la ÚNICA llamada a la CNN por foto: ya no hay una
+	// llamada previa de "vista previa" del lado del cliente.
+	photoScore := tool.ConditionScore
+	if prediction, predErr := s.PredictCondition(ctx, inp.Filename, bytes.NewReader(content), inp.ContentType); predErr == nil {
+		photoScore = prediction.ScoreCondicion
+	}
+
+	if _, err := s.toolPhotoRepo.Create(ctx, &tooldomain.ToolPhoto{
+		ToolID:         inp.ToolID,
+		PhotoURL:       url,
+		ConditionScore: photoScore,
+	}); err != nil {
+		return nil, fmt.Errorf("guardar foto de la herramienta: %w", err)
+	}
+
+	photos, err := s.toolPhotoRepo.FindByToolID(ctx, inp.ToolID)
+	if err != nil {
+		return nil, fmt.Errorf("listar fotos de la herramienta: %w", err)
+	}
+
+	tool.PhotoURL = url // portada = ultima foto subida (Flutter aun no tiene galeria)
+	tool.ConditionScore = peorScore(photos)
+
+	// La herramienta solo queda disponible para renta una vez que cumple el
+	// minimo de fotos verificadas por la CNN.
+	if len(photos) >= MinRequiredPhotos {
+		tool.IsAvailable = true
+	}
+
 	return s.toolRepo.Update(ctx, tool)
+}
+
+// peorScore devuelve el menor condition_score entre todas las fotos de una
+// herramienta — el angulo que muestra mas desgaste manda, en vez de que un
+// promedio lo diluya con fotos mas favorecedoras.
+func peorScore(photos []*tooldomain.ToolPhoto) float64 {
+	if len(photos) == 0 {
+		return 0.70
+	}
+	peor := photos[0].ConditionScore
+	for _, p := range photos[1:] {
+		if p.ConditionScore < peor {
+			peor = p.ConditionScore
+		}
+	}
+	return peor
 }
 
 type pythonPricingResponse struct {
 	ValorReal           float64 `json:"valor_real_depreciado"`
 	TopeGarantia        float64 `json:"tope_cobertura_garantia"`
+	DeducibleGarantia   float64 `json:"deducible_garantia_sugerido"`
 	PrecioRentaSugerido float64 `json:"precio_renta_sugerido"`
 }
 
@@ -335,10 +404,12 @@ func (s *toolService) GetPricingSuggestion(ctx context.Context, estimatedValue f
 	fallback := func() *toolports.PricingSuggestion {
 		minDaily := estimatedValue * 0.5 / 30
 		return &toolports.PricingSuggestion{
-			EstimatedValue: estimatedValue,
-			SuggestedDaily: minDaily,
-			MinimumDaily:   minDaily,
-			Description:    "Precio mínimo sugerido (Fallback local): recuperar el 50% del valor en 30 días de renta",
+			EstimatedValue:      estimatedValue,
+			SuggestedDaily:      minDaily,
+			MinimumDaily:        minDaily,
+			GuaranteeCap:        estimatedValue,
+			SuggestedDeductible: estimatedValue * 0.10,
+			Description:         "Precio mínimo sugerido (Fallback local): recuperar el 50% del valor en 30 días de renta",
 		}
 	}
 
@@ -362,10 +433,12 @@ func (s *toolService) GetPricingSuggestion(ctx context.Context, estimatedValue f
 	}
 
 	return &toolports.PricingSuggestion{
-		EstimatedValue: apiResp.ValorReal,
-		SuggestedDaily: apiResp.PrecioRentaSugerido,
-		MinimumDaily:   apiResp.PrecioRentaSugerido,
-		Description:    fmt.Sprintf("Precio sugerido por Inteligencia Artificial (Random Forest). Garantía máxima: $%.2f MXN", apiResp.TopeGarantia),
+		EstimatedValue:      apiResp.ValorReal,
+		SuggestedDaily:      apiResp.PrecioRentaSugerido,
+		MinimumDaily:        apiResp.PrecioRentaSugerido,
+		GuaranteeCap:        apiResp.TopeGarantia,
+		SuggestedDeductible: apiResp.DeducibleGarantia,
+		Description:         fmt.Sprintf("Precio sugerido por Inteligencia Artificial (Random Forest). Garantía máxima: $%.2f MXN", apiResp.TopeGarantia),
 	}
 }
 
@@ -396,7 +469,13 @@ func (s *toolService) PredictCondition(ctx context.Context, filename string, con
 
 	req.Header.Set("Content-Type", bodyWriter.FormDataContentType())
 
-	client := &http.Client{Timeout: 8 * time.Second}
+	// 30s (no 8s): la primera llamada despues de que el servicio de ML
+	// arranca carga el modelo Keras en memoria desde disco, lo cual puede
+	// tardar mas de 8s por si solo. Con un timeout corto esa primera
+	// llamada fallaba en silencio y UploadPhoto se quedaba con el score
+	// anterior sin que nada avisara del error. Las llamadas siguientes son
+	// rapidas (~100-300ms) porque el modelo ya queda cacheado en memoria.
+	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("ejecutar request a ML: %w", err)

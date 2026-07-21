@@ -44,10 +44,12 @@ type UploadPhotoInput struct {
 }
 
 type PricingSuggestion struct {
-	EstimatedValue float64 `json:"estimated_value"`
-	SuggestedDaily float64 `json:"suggested_daily_rate"`
-	MinimumDaily   float64 `json:"minimum_daily_rate"`
-	Description    string  `json:"description"`
+	EstimatedValue      float64 `json:"estimated_value"`
+	SuggestedDaily      float64 `json:"suggested_daily_rate"`
+	MinimumDaily        float64 `json:"minimum_daily_rate"`
+	GuaranteeCap        float64 `json:"guarantee_cap"`
+	SuggestedDeductible float64 `json:"suggested_deductible"`
+	Description         string  `json:"description"`
 }
 
 type PredictConditionOutput struct {
