@@ -21,7 +21,7 @@ const (
 // adicional y NO reembolsable sobre el monto de la renta (ingreso de la
 // plataforma), distinto del depósito de garantía (que sí se libera si no hay
 // disputa).
-const ServiceCommissionRate = 0.10
+const ServiceCommissionRate = 0.05
 
 // Rental representa una renta de herramienta.
 type Rental struct {

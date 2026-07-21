@@ -16,6 +16,7 @@ import (
 	sharedports "github.com/yourusername/tool-inventory-api/internal/shared/ports"
 	"github.com/yourusername/tool-inventory-api/internal/shared/pubsub"
 	toolports "github.com/yourusername/tool-inventory-api/internal/tool/ports"
+	userports "github.com/yourusername/tool-inventory-api/internal/user/ports"
 )
 
 var (
@@ -23,24 +24,62 @@ var (
 	ErrUnauthorized         = errors.New("no tienes permiso para esta acción")
 	ErrPaymentFailed        = errors.New("el pago no pudo procesarse")
 	ErrPaymentMethodNotCard = errors.New("solo se acepta pago con tarjeta")
+	ErrOwnerMPNotConnected  = errors.New("el propietario no ha vinculado su cuenta de Mercado Pago, no se puede procesar el pago")
 )
 
 type rentalService struct {
 	rentalRepo      rentalports.RentalRepository
 	toolRepo        toolports.ToolRepository
+	userRepo        userports.UserRepository
 	paymentProvider sharedports.PaymentProvider // nil en modo desarrollo
 }
 
 func NewRentalService(
 	rentalRepo rentalports.RentalRepository,
 	toolRepo toolports.ToolRepository,
+	userRepo userports.UserRepository,
 	paymentProvider sharedports.PaymentProvider,
 ) rentalports.RentalService {
 	return &rentalService{
 		rentalRepo:      rentalRepo,
 		toolRepo:        toolRepo,
+		userRepo:        userRepo,
 		paymentProvider: paymentProvider,
 	}
+}
+
+// sellerAccessToken busca la cuenta de Mercado Pago vinculada por el
+// propietario (ownerID) y devuelve un access_token utilizable para crear/
+// gestionar pagos en su nombre (split de marketplace). Si el token guardado
+// ya expiró, lo renueva primero. Devuelve error si el propietario no ha
+// vinculado ninguna cuenta.
+func (s *rentalService) sellerAccessToken(ctx context.Context, ownerID uuid.UUID) (string, error) {
+	return resolveSellerAccessToken(ctx, s.userRepo, s.paymentProvider, ownerID)
+}
+
+// resolveSellerAccessToken es la lógica compartida entre rentalService y
+// adminService para obtener (y renovar si hace falta) el access_token de
+// Mercado Pago del propietario, usado para crear/gestionar pagos con split.
+func resolveSellerAccessToken(ctx context.Context, userRepo userports.UserRepository, paymentProvider sharedports.PaymentProvider, ownerID uuid.UUID) (string, error) {
+	account, err := userRepo.GetMPSellerAccount(ctx, ownerID)
+	if err != nil {
+		return "", err
+	}
+	if !account.Connected() {
+		return "", ErrOwnerMPNotConnected
+	}
+	if time.Now().Before(account.ExpiresAt) {
+		return account.AccessToken, nil
+	}
+
+	accessToken, refreshToken, expiresAt, err := paymentProvider.RefreshSellerToken(ctx, account.RefreshToken)
+	if err != nil {
+		return "", fmt.Errorf("renovar token de Mercado Pago del propietario: %w", err)
+	}
+	if err := userRepo.SetMPSellerAccount(ctx, ownerID, account.SellerUserID, accessToken, refreshToken, expiresAt); err != nil {
+		log.Printf("WARN: no se pudo guardar el token renovado del propietario %s: %v", ownerID, err)
+	}
+	return accessToken, nil
 }
 
 func (s *rentalService) Create(ctx context.Context, inp rentalports.CreateRentalInput) (*rentaldomain.Rental, error) {
@@ -88,14 +127,23 @@ func (s *rentalService) Create(ctx context.Context, inp rentalports.CreateRental
 	rental.CommissionAmount = rental.CalculateCommission()
 
 	// Pre-autorizar pago si se proporcionó token de tarjeta
+	var sellerToken string
 	if inp.CardToken != "" && s.paymentProvider != nil {
+		var err error
+		sellerToken, err = s.sellerAccessToken(ctx, tool.OwnerID)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrPaymentFailed, err)
+		}
+
 		totalToFreeze := rental.TotalAmount + rental.CommissionAmount + deductible
 		paymentID, err := s.paymentProvider.Authorize(ctx, sharedports.AuthorizePaymentInput{
-			Amount:      totalToFreeze,
-			CardToken:   inp.CardToken,
-			Description: fmt.Sprintf("Renta de herramienta: %.0f días", rental.TotalAmount/rental.DailyRate),
-			PayerEmail:  inp.PayerEmail,
-			Metadata:    map[string]string{"tool_id": tool.ID.String()},
+			Amount:            totalToFreeze,
+			CardToken:         inp.CardToken,
+			Description:       fmt.Sprintf("Renta de herramienta: %.0f días", rental.TotalAmount/rental.DailyRate),
+			PayerEmail:        inp.PayerEmail,
+			Metadata:          map[string]string{"tool_id": tool.ID.String()},
+			SellerAccessToken: sellerToken,
+			ApplicationFee:    rental.CommissionAmount,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrPaymentFailed, err)
@@ -108,7 +156,7 @@ func (s *rentalService) Create(ctx context.Context, inp rentalports.CreateRental
 	if err != nil {
 		// Si falló la BD pero el pago ya fue autorizado, cancelarlo
 		if rental.MPPaymentID != "" {
-			_ = s.paymentProvider.Cancel(ctx, rental.MPPaymentID)
+			_ = s.paymentProvider.Cancel(ctx, rental.MPPaymentID, sellerToken)
 		}
 		return nil, err
 	}
@@ -207,7 +255,10 @@ func (s *rentalService) ConfirmReturn(ctx context.Context, rentalID uuid.UUID, u
 		// (el depósito de garantía se libera automáticamente al no haber disputa)
 		if s.paymentProvider != nil && updated.MPPaymentID != "" {
 			amountToCapture := updated.TotalAmount + updated.CommissionAmount
-			if err := s.paymentProvider.Capture(ctx, updated.MPPaymentID, amountToCapture); err != nil {
+			sellerToken, tokenErr := s.sellerAccessToken(ctx, updated.OwnerID)
+			if tokenErr != nil {
+				log.Printf("WARN: no se pudo obtener token del propietario para capturar pago %s: %v", updated.MPPaymentID, tokenErr)
+			} else if err := s.paymentProvider.Capture(ctx, updated.MPPaymentID, amountToCapture, sellerToken); err != nil {
 				log.Printf("WARN: no se pudo capturar pago %s: %v", updated.MPPaymentID, err)
 			} else {
 				updated.PaymentStatus = "captured"
@@ -244,7 +295,10 @@ func (s *rentalService) Dispute(ctx context.Context, rentalID uuid.UUID, ownerID
 
 	// Capturar el depósito como penalización al solicitante
 	if s.paymentProvider != nil && updated.MPPaymentID != "" {
-		if err := s.paymentProvider.Capture(ctx, updated.MPPaymentID, updated.DeductibleAmount); err != nil {
+		sellerToken, tokenErr := s.sellerAccessToken(ctx, updated.OwnerID)
+		if tokenErr != nil {
+			log.Printf("WARN: no se pudo obtener token del propietario para capturar depósito %s: %v", updated.MPPaymentID, tokenErr)
+		} else if err := s.paymentProvider.Capture(ctx, updated.MPPaymentID, updated.DeductibleAmount, sellerToken); err != nil {
 			log.Printf("WARN: no se pudo capturar depósito en disputa %s: %v", updated.MPPaymentID, err)
 		} else {
 			updated.PaymentStatus = "captured"
@@ -280,7 +334,10 @@ func (s *rentalService) Cancel(ctx context.Context, rentalID uuid.UUID, userID u
 
 	// Cancelar la pre-autorización en MP (devuelve fondos al solicitante)
 	if s.paymentProvider != nil && updated.MPPaymentID != "" {
-		if err := s.paymentProvider.Cancel(ctx, updated.MPPaymentID); err != nil {
+		sellerToken, tokenErr := s.sellerAccessToken(ctx, updated.OwnerID)
+		if tokenErr != nil {
+			log.Printf("WARN: no se pudo obtener token del propietario para cancelar pago %s: %v", updated.MPPaymentID, tokenErr)
+		} else if err := s.paymentProvider.Cancel(ctx, updated.MPPaymentID, sellerToken); err != nil {
 			log.Printf("WARN: no se pudo cancelar pago %s: %v", updated.MPPaymentID, err)
 		}
 	}
@@ -301,6 +358,11 @@ func (s *rentalService) CreatePreference(ctx context.Context, rentalID uuid.UUID
 		return sharedports.CreatePreferenceOutput{}, ErrUnauthorized
 	}
 
+	sellerToken, err := s.sellerAccessToken(ctx, rental.OwnerID)
+	if err != nil {
+		return sharedports.CreatePreferenceOutput{}, fmt.Errorf("%w: %v", ErrPaymentFailed, err)
+	}
+
 	totalToFreeze := rental.TotalAmount + rental.CommissionAmount + rental.DeductibleAmount
 
 	notificationURL := os.Getenv("MP_NOTIFICATION_URL")
@@ -310,14 +372,16 @@ func (s *rentalService) CreatePreference(ctx context.Context, rentalID uuid.UUID
 	}
 
 	out, err := s.paymentProvider.CreatePreference(ctx, sharedports.CreatePreferenceInput{
-		Title:           fmt.Sprintf("Renta de herramienta (%s)", rentalID.String()[:8]),
-		TotalAmount:     totalToFreeze,
-		PayerEmail:      payerEmail,
-		ExternalRef:     rental.ID.String(),
-		NotificationURL: notificationURL,
-		BackURLSuccess:  backURL + "/success",
-		BackURLFailure:  backURL + "/failure",
-		BackURLPending:  backURL + "/pending",
+		Title:             fmt.Sprintf("Renta de herramienta (%s)", rentalID.String()[:8]),
+		TotalAmount:       totalToFreeze,
+		PayerEmail:        payerEmail,
+		ExternalRef:       rental.ID.String(),
+		NotificationURL:   notificationURL,
+		BackURLSuccess:    backURL + "/success",
+		BackURLFailure:    backURL + "/failure",
+		BackURLPending:    backURL + "/pending",
+		SellerAccessToken: sellerToken,
+		ApplicationFee:    rental.CommissionAmount,
 	})
 	if err != nil {
 		return sharedports.CreatePreferenceOutput{}, fmt.Errorf("%w: %v", ErrPaymentFailed, err)

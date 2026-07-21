@@ -300,3 +300,66 @@ func (h *AuthHandler) VerifyKyc(c *gin.Context) {
 
 	c.JSON(http.StatusOK, res)
 }
+
+// StartMPConnect godoc
+// @Summary      Iniciar vínculo de cuenta de Mercado Pago (Marketplace)
+// @Description  Devuelve la URL de autorización de MP que el propietario debe abrir para conectar su propia cuenta
+// @Tags         auth
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200 {object} map[string]string
+// @Router       /auth/mp-connect/start [get]
+func (h *AuthHandler) StartMPConnect(c *gin.Context) {
+	userID := sharedmiddleware.UserIDFromContext(c)
+
+	authURL, err := h.authSvc.StartMPConnect(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"auth_url": authURL})
+}
+
+// GetMPConnectStatus godoc
+// @Summary      Estado del vínculo de cuenta de Mercado Pago
+// @Tags         auth
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200 {object} map[string]bool
+// @Router       /auth/mp-connect/status [get]
+func (h *AuthHandler) GetMPConnectStatus(c *gin.Context) {
+	userID := sharedmiddleware.UserIDFromContext(c)
+
+	connected, err := h.authSvc.GetMPConnectStatus(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"connected": connected})
+}
+
+// MPConnectCallback godoc
+// @Summary      Callback de OAuth de Mercado Pago (lo invoca MP, no el cliente)
+// @Tags         auth
+// @Produce      html
+// @Param        code  query string true "Código de autorización"
+// @Param        state query string true "State generado en /auth/mp-connect/start"
+// @Success      200 {string} string "Página HTML de confirmación"
+// @Router       /auth/mp-connect/callback [get]
+func (h *AuthHandler) MPConnectCallback(c *gin.Context) {
+	code := c.Query("code")
+	state := c.Query("state")
+
+	err := h.authSvc.HandleMPConnectCallback(c.Request.Context(), code, state)
+	if err != nil {
+		log.Printf("ERROR MP CONNECT CALLBACK: %v", err)
+		c.Data(http.StatusBadRequest, "text/html; charset=utf-8", []byte(
+			`<html><body style="font-family:sans-serif;text-align:center;padding:40px">`+
+				`<h2>No se pudo vincular tu cuenta</h2><p>Vuelve a intentarlo desde la app.</p></body></html>`))
+		return
+	}
+
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(
+		`<html><body style="font-family:sans-serif;text-align:center;padding:40px">`+
+			`<h2>Cuenta de Mercado Pago vinculada ✅</h2><p>Ya puedes cerrar esta ventana.</p></body></html>`))
+}

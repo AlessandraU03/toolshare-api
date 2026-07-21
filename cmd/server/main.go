@@ -85,11 +85,22 @@ func main() {
 
 	// Proveedor de pagos: Mercado Pago (o Mock si falta la clave de desarrollo)
 	var paymentProvider sharedports.PaymentProvider
+	mockPaymentMode := os.Getenv("MP_ACCESS_TOKEN") == ""
 	if mpToken := os.Getenv("MP_ACCESS_TOKEN"); mpToken != "" {
-		paymentProvider = payment.NewMercadoPagoProvider(mpToken)
+		mpClientID := os.Getenv("MP_CLIENT_ID")
+		mpClientSecret := os.Getenv("MP_CLIENT_SECRET")
+		mpRedirectURI := os.Getenv("MP_OAUTH_REDIRECT_URI")
+		paymentProvider = payment.NewMercadoPagoProvider(mpToken, mpClientID, mpClientSecret, mpRedirectURI)
 		log.Println("Pasarela de pagos: Mercado Pago (producción)")
+		if mpClientID == "" || mpClientSecret == "" || mpRedirectURI == "" {
+			log.Println("ADVERTENCIA: MP_CLIENT_ID/MP_CLIENT_SECRET/MP_OAUTH_REDIRECT_URI no configurados — los propietarios no podrán vincular su cuenta de Mercado Pago (Marketplace)")
+		}
 	} else {
-		paymentProvider = payment.NewMockPaymentProvider()
+		mockRedirectURI := os.Getenv("MP_OAUTH_REDIRECT_URI")
+		if mockRedirectURI == "" {
+			mockRedirectURI = "http://localhost:8080/api/auth/mp-connect/callback"
+		}
+		paymentProvider = payment.NewMockPaymentProvider(mockRedirectURI)
 		log.Println("Pasarela de pagos: mock (MP_ACCESS_TOKEN no configurado)")
 	}
 
@@ -102,8 +113,8 @@ func main() {
 	// ── Servicios ──────────────────────────────────────────────────────────────
 	authSvc := userservice.NewAuthService(userRepo, tokenProvider, paymentProvider)
 	toolSvc := toolservice.NewToolService(toolRepo, toolPhotoRepo, userRepo, fileStorage, paymentProvider)
-	rentalSvc := rentalservice.NewRentalService(rentalRepo, toolRepo, paymentProvider)
-	adminSvc := rentalservice.NewAdminService(rentalRepo, toolRepo, paymentProvider)
+	rentalSvc := rentalservice.NewRentalService(rentalRepo, toolRepo, userRepo, paymentProvider)
+	adminSvc := rentalservice.NewAdminService(rentalRepo, toolRepo, userRepo, paymentProvider)
 	reviewSvc := reviewservice.NewReviewService(reviewRepo, rentalRepo)
 
 	// Sembrar usuario admin si no existe
@@ -130,7 +141,7 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	r := router.New(handlers, tokenProvider, uploadsDir)
+	r := router.New(handlers, tokenProvider, uploadsDir, mockPaymentMode)
 
 	// Swagger UI en /docs/index.html
 	r.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))

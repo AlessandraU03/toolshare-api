@@ -22,7 +22,7 @@ type Handlers struct {
 	Review  *reviewhandler.ReviewHandler
 }
 
-func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string) *gin.Engine {
+func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string, mockPaymentMode bool) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery(), corsMiddleware())
 
@@ -50,6 +50,9 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string)
 		auth.POST("/register", h.Auth.Register)
 		auth.POST("/login", h.Auth.Login)
 		auth.POST("/verify-kyc", h.Auth.VerifyKyc)
+		// Callback de OAuth de Mercado Pago: lo invoca MP redirigiendo el
+		// navegador del propietario, sin header de autenticación.
+		auth.GET("/mp-connect/callback", h.Auth.MPConnectCallback)
 	}
 
 	api.GET("/tools", h.Tool.GetTools)
@@ -59,6 +62,12 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string)
 
 	// Webhook de Mercado Pago (público, MP llama directamente)
 	api.POST("/webhooks/mercadopago", h.Webhook.MercadoPago)
+
+	// Checkout simulado (solo en modo mock / desarrollo local): aprueba el
+	// pago al instante y redirige de vuelta a la app. No existe en producción.
+	if mockPaymentMode {
+		api.GET("/mock/mp-checkout", h.Rental.MockCheckout)
+	}
 
 	// ── Autenticadas ───────────────────────────────────────────────────────────
 	protected := api.Group("")
@@ -70,6 +79,8 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string)
 		protected.POST("/auth/cards", h.Auth.AddCard)
 		protected.GET("/auth/cards", h.Auth.ListCards)
 		protected.DELETE("/auth/cards/:id", h.Auth.DeleteCard)
+		protected.GET("/auth/mp-connect/start", h.Auth.StartMPConnect)
+		protected.GET("/auth/mp-connect/status", h.Auth.GetMPConnectStatus)
 
 		protected.GET("/users/:id/reviews", h.Review.GetUserReviews)
 

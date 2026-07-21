@@ -293,3 +293,51 @@ func (s *authService) DeleteCard(ctx context.Context, userID uuid.UUID, cardID u
 	_ = s.paymentProvider.DeleteCard(ctx, customerID, mpCardID)
 	return nil
 }
+
+// mpConnectStatePrefix distingue el "state" de OAuth Connect de un JWT de sesión normal.
+const mpConnectStatePrefix = "mpconnect:"
+
+// StartMPConnect genera la URL de autorización de Mercado Pago para que el
+// propietario vincule su propia cuenta. El "state" es un JWT de corta vida
+// (reusa el mismo TokenProvider de sesión) que amarra el callback al userID.
+func (s *authService) StartMPConnect(ctx context.Context, userID uuid.UUID) (string, error) {
+	if s.paymentProvider == nil {
+		return "", fmt.Errorf("pasarela de pagos no configurada")
+	}
+	token, err := s.tokenProvider.Generate(userID, userdomain.RoleOwner)
+	if err != nil {
+		return "", fmt.Errorf("generar state de OAuth: %w", err)
+	}
+	return s.paymentProvider.GetOAuthURL(mpConnectStatePrefix + token), nil
+}
+
+// HandleMPConnectCallback procesa el "code" recibido tras la autorización y
+// guarda los tokens de la cuenta del propietario.
+func (s *authService) HandleMPConnectCallback(ctx context.Context, code, state string) error {
+	if s.paymentProvider == nil {
+		return fmt.Errorf("pasarela de pagos no configurada")
+	}
+	if !strings.HasPrefix(state, mpConnectStatePrefix) {
+		return fmt.Errorf("state de OAuth inválido")
+	}
+	token := strings.TrimPrefix(state, mpConnectStatePrefix)
+	userID, _, err := s.tokenProvider.Validate(token)
+	if err != nil {
+		return fmt.Errorf("state de OAuth expirado o inválido: %w", err)
+	}
+
+	sellerUserID, accessToken, refreshToken, expiresAt, err := s.paymentProvider.ExchangeOAuthCode(ctx, code)
+	if err != nil {
+		return fmt.Errorf("intercambiar code de OAuth: %w", err)
+	}
+	return s.userRepo.SetMPSellerAccount(ctx, userID, sellerUserID, accessToken, refreshToken, expiresAt)
+}
+
+// GetMPConnectStatus indica si el usuario ya vinculó su cuenta MP.
+func (s *authService) GetMPConnectStatus(ctx context.Context, userID uuid.UUID) (bool, error) {
+	account, err := s.userRepo.GetMPSellerAccount(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	return account.Connected(), nil
+}

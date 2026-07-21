@@ -3,6 +3,7 @@ package rentalhandler
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,7 +27,7 @@ func NewRentalHandler(rentalSvc rentalports.RentalService) *RentalHandler {
 
 // CreateRental godoc
 // @Summary      Solicitar renta
-// @Description  El solicitante crea una solicitud de renta. Solo se acepta pago con tarjeta. Si se envía card_token, los fondos (renta + comisión de servicio 10% + depósito de garantía 10%) quedan congelados en Mercado Pago
+// @Description  El solicitante crea una solicitud de renta. Solo se acepta pago con tarjeta. Si se envía card_token, los fondos (renta + comisión de servicio 5% + depósito de garantía 10%) quedan congelados en Mercado Pago
 // @Tags         rentas
 // @Accept       json
 // @Produce      json
@@ -474,4 +475,31 @@ func (h *RentalHandler) StreamRental(c *gin.Context) {
 			c.Writer.Flush()
 		}
 	}
+}
+
+// MockCheckout simula la pantalla de Checkout Pro de Mercado Pago para
+// pruebas locales (solo se registra la ruta cuando la pasarela está en modo
+// mock, ver router.go). Aprueba el pago al instante y redirige de vuelta a
+// la app por el mismo back_url que se usaría en producción.
+func (h *RentalHandler) MockCheckout(c *gin.Context) {
+	externalRef := c.Query("external_reference")
+	backURL := c.Query("back_url")
+
+	rentalID, err := uuid.Parse(externalRef)
+	if err != nil {
+		c.Data(http.StatusBadRequest, "text/html; charset=utf-8", []byte(
+			`<html><body style="font-family:sans-serif;text-align:center;padding:40px">`+
+				`<h2>external_reference inválido</h2></body></html>`))
+		return
+	}
+
+	mockPaymentID := "MOCK_" + strconv.FormatInt(time.Now().UnixMilli(), 10)
+	if err := h.rentalSvc.UpdatePaymentStatus(c.Request.Context(), rentalID, mockPaymentID, "approved"); err != nil {
+		c.Data(http.StatusInternalServerError, "text/html; charset=utf-8", []byte(
+			`<html><body style="font-family:sans-serif;text-align:center;padding:40px">`+
+				`<h2>No se pudo aprobar el pago simulado</h2></body></html>`))
+		return
+	}
+
+	c.Redirect(http.StatusFound, backURL)
 }

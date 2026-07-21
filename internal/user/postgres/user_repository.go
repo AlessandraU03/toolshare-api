@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -93,6 +95,55 @@ func (r *UserRepository) SetMPCustomerID(ctx context.Context, id uuid.UUID, cust
 	tag, err := r.db.Exec(ctx, `UPDATE users SET mp_customer_id = $1, updated_at = now() WHERE id = $2`, customerID, id)
 	if err != nil {
 		return fmt.Errorf("guardar mp_customer_id: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+// GetMPSellerAccount devuelve la cuenta de Mercado Pago que el propietario
+// vinculó vía OAuth (Marketplace), o SellerUserID vacío si no ha conectado.
+func (r *UserRepository) GetMPSellerAccount(ctx context.Context, id uuid.UUID) (*userdomain.MPSellerAccount, error) {
+	var sellerUserID, accessToken, refreshToken *string
+	var expiresAt *time.Time
+	err := r.db.QueryRow(ctx,
+		`SELECT mp_seller_user_id, mp_seller_access_token, mp_seller_refresh_token, mp_seller_token_expires_at
+		 FROM users WHERE id = $1`, id).
+		Scan(&sellerUserID, &accessToken, &refreshToken, &expiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, apperrors.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("consultar cuenta MP del vendedor: %w", err)
+	}
+
+	account := &userdomain.MPSellerAccount{}
+	if sellerUserID != nil {
+		account.SellerUserID = *sellerUserID
+	}
+	if accessToken != nil {
+		account.AccessToken = *accessToken
+	}
+	if refreshToken != nil {
+		account.RefreshToken = *refreshToken
+	}
+	if expiresAt != nil {
+		account.ExpiresAt = *expiresAt
+	}
+	return account, nil
+}
+
+// SetMPSellerAccount guarda (o actualiza) el vínculo OAuth con la cuenta de
+// Mercado Pago del propietario.
+func (r *UserRepository) SetMPSellerAccount(ctx context.Context, id uuid.UUID, sellerUserID, accessToken, refreshToken string, expiresAt time.Time) error {
+	tag, err := r.db.Exec(ctx,
+		`UPDATE users SET mp_seller_user_id = $1, mp_seller_access_token = $2,
+		 mp_seller_refresh_token = $3, mp_seller_token_expires_at = $4, updated_at = now()
+		 WHERE id = $5`,
+		sellerUserID, accessToken, refreshToken, expiresAt, id)
+	if err != nil {
+		return fmt.Errorf("guardar cuenta MP del vendedor: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return apperrors.ErrNotFound

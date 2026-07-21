@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -18,14 +19,20 @@ const mpBaseURL = "https://api.mercadopago.com"
 
 // MercadoPagoProvider implementa sharedports.PaymentProvider usando la REST API de MP.
 type MercadoPagoProvider struct {
-	accessToken string
-	httpClient  *http.Client
+	accessToken  string
+	clientID     string
+	clientSecret string
+	redirectURI  string
+	httpClient   *http.Client
 }
 
-func NewMercadoPagoProvider(accessToken string) sharedports.PaymentProvider {
+func NewMercadoPagoProvider(accessToken, clientID, clientSecret, redirectURI string) sharedports.PaymentProvider {
 	return &MercadoPagoProvider{
-		accessToken: accessToken,
-		httpClient:  &http.Client{Timeout: 15 * time.Second},
+		accessToken:  accessToken,
+		clientID:     clientID,
+		clientSecret: clientSecret,
+		redirectURI:  redirectURI,
+		httpClient:   &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
@@ -39,6 +46,9 @@ type mpPaymentRequest struct {
 	Capture           bool              `json:"capture"`
 	Payer             mpPayer           `json:"payer"`
 	Metadata          map[string]string `json:"metadata,omitempty"`
+	// ApplicationFee es el monto que retiene la plataforma cuando el pago se
+	// crea con el access_token del vendedor (split de marketplace).
+	ApplicationFee float64 `json:"application_fee,omitempty"`
 }
 
 type mpPayer struct {
@@ -58,12 +68,35 @@ type mpUpdateRequest struct {
 }
 
 type mpPreferenceRequest struct {
-	Items           []mpItem   `json:"items"`
-	Payer           *mpPayer   `json:"payer,omitempty"`
-	BackURLs        mpBackURLs `json:"back_urls"`
-	AutoReturn      string     `json:"auto_return"`
-	NotificationURL string     `json:"notification_url,omitempty"`
-	ExternalRef     string     `json:"external_reference"`
+	Items           []mpItem          `json:"items"`
+	Payer           *mpPayer          `json:"payer,omitempty"`
+	BackURLs        mpBackURLs        `json:"back_urls"`
+	AutoReturn      string            `json:"auto_return"`
+	NotificationURL string            `json:"notification_url,omitempty"`
+	ExternalRef     string            `json:"external_reference"`
+	PaymentMethods  *mpPaymentMethods `json:"payment_methods,omitempty"`
+	// MarketplaceFee es el monto que retiene la plataforma cuando la
+	// preferencia se crea con el access_token del vendedor.
+	MarketplaceFee float64 `json:"marketplace_fee,omitempty"`
+}
+
+// mpPaymentMethods restringe qué métodos de pago se muestran en Checkout Pro.
+type mpPaymentMethods struct {
+	ExcludedPaymentTypes []mpPaymentTypeID `json:"excluded_payment_types,omitempty"`
+}
+
+type mpPaymentTypeID struct {
+	ID string `json:"id"`
+}
+
+// onlyCardPaymentMethods excluye todo lo que no sea tarjeta de crédito/débito.
+func onlyCardPaymentMethods() *mpPaymentMethods {
+	excluded := []string{"ticket", "atm", "bank_transfer", "digital_wallet", "digital_currency", "prepaid_card"}
+	types := make([]mpPaymentTypeID, len(excluded))
+	for i, t := range excluded {
+		types[i] = mpPaymentTypeID{ID: t}
+	}
+	return &mpPaymentMethods{ExcludedPaymentTypes: types}
 }
 
 type mpItem struct {
@@ -130,25 +163,28 @@ func (p *MercadoPagoProvider) Authorize(ctx context.Context, inp sharedports.Aut
 		Payer:             mpPayer{Email: inp.PayerEmail},
 		Metadata:          inp.Metadata,
 	}
+	if inp.SellerAccessToken != "" {
+		body.ApplicationFee = inp.ApplicationFee
+	}
 
-	result, err := p.post(ctx, "/v1/payments", body)
+	result, err := p.post(ctx, "/v1/payments", body, inp.SellerAccessToken)
 	if err != nil {
 		return "", err
 	}
 	return strconv.FormatInt(result.ID, 10), nil
 }
 
-func (p *MercadoPagoProvider) Capture(ctx context.Context, paymentID string, amount float64) error {
+func (p *MercadoPagoProvider) Capture(ctx context.Context, paymentID string, amount float64, sellerAccessToken string) error {
 	t := true
 	body := mpUpdateRequest{
 		Capture:           &t,
 		TransactionAmount: amount,
 	}
-	return p.put(ctx, "/v1/payments/"+paymentID, body)
+	return p.put(ctx, "/v1/payments/"+paymentID, body, sellerAccessToken)
 }
 
-func (p *MercadoPagoProvider) Cancel(ctx context.Context, paymentID string) error {
-	return p.put(ctx, "/v1/payments/"+paymentID, mpUpdateRequest{Status: "cancelled"})
+func (p *MercadoPagoProvider) Cancel(ctx context.Context, paymentID string, sellerAccessToken string) error {
+	return p.put(ctx, "/v1/payments/"+paymentID, mpUpdateRequest{Status: "cancelled"}, sellerAccessToken)
 }
 
 func (p *MercadoPagoProvider) CreatePreference(ctx context.Context, inp sharedports.CreatePreferenceInput) (sharedports.CreatePreferenceOutput, error) {
@@ -169,9 +205,13 @@ func (p *MercadoPagoProvider) CreatePreference(ctx context.Context, inp sharedpo
 		AutoReturn:      "approved",
 		NotificationURL: inp.NotificationURL,
 		ExternalRef:     inp.ExternalRef,
+		PaymentMethods:  onlyCardPaymentMethods(),
 	}
 	if inp.PayerEmail != "" {
 		body.Payer = &mpPayer{Email: inp.PayerEmail}
+	}
+	if inp.SellerAccessToken != "" {
+		body.MarketplaceFee = inp.ApplicationFee
 	}
 
 	data, err := json.Marshal(body)
@@ -179,12 +219,14 @@ func (p *MercadoPagoProvider) CreatePreference(ctx context.Context, inp sharedpo
 		return sharedports.CreatePreferenceOutput{}, fmt.Errorf("marshal preference: %w", err)
 	}
 
+	accessToken := p.tokenOrDefault(inp.SellerAccessToken)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, mpBaseURL+"/checkout/preferences", bytes.NewReader(data))
 	if err != nil {
 		return sharedports.CreatePreferenceOutput{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+p.accessToken)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
@@ -202,7 +244,7 @@ func (p *MercadoPagoProvider) CreatePreference(ctx context.Context, inp sharedpo
 
 	// Usar sandbox_init_point si el token es de prueba
 	initPoint := result.InitPoint
-	if strings.HasPrefix(p.accessToken, "TEST-") {
+	if strings.HasPrefix(accessToken, "TEST-") {
 		initPoint = result.SandboxInitPoint
 	}
 
@@ -333,7 +375,16 @@ func (p *MercadoPagoProvider) DeleteCard(ctx context.Context, customerID, mpCard
 
 // ── Helpers HTTP ──────────────────────────────────────────────────────────────
 
-func (p *MercadoPagoProvider) post(ctx context.Context, path string, body interface{}) (*mpPaymentResponse, error) {
+// tokenOrDefault devuelve accessToken si no está vacío, o el access_token de
+// la plataforma en caso contrario.
+func (p *MercadoPagoProvider) tokenOrDefault(accessToken string) string {
+	if accessToken != "" {
+		return accessToken
+	}
+	return p.accessToken
+}
+
+func (p *MercadoPagoProvider) post(ctx context.Context, path string, body interface{}, accessToken string) (*mpPaymentResponse, error) {
 	data, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("marshal: %w", err)
@@ -344,7 +395,7 @@ func (p *MercadoPagoProvider) post(ctx context.Context, path string, body interf
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+p.accessToken)
+	req.Header.Set("Authorization", "Bearer "+p.tokenOrDefault(accessToken))
 	req.Header.Set("X-Idempotency-Key", uuid.New().String())
 
 	resp, err := p.httpClient.Do(req)
@@ -363,7 +414,7 @@ func (p *MercadoPagoProvider) post(ctx context.Context, path string, body interf
 	return &result, nil
 }
 
-func (p *MercadoPagoProvider) put(ctx context.Context, path string, body interface{}) error {
+func (p *MercadoPagoProvider) put(ctx context.Context, path string, body interface{}, accessToken string) error {
 	data, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
@@ -374,7 +425,7 @@ func (p *MercadoPagoProvider) put(ctx context.Context, path string, body interfa
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+p.accessToken)
+	req.Header.Set("Authorization", "Bearer "+p.tokenOrDefault(accessToken))
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
@@ -388,4 +439,98 @@ func (p *MercadoPagoProvider) put(ctx context.Context, path string, body interfa
 		return fmt.Errorf("MP %d: %s", resp.StatusCode, result.Message)
 	}
 	return nil
+}
+
+// ── OAuth Connect (Marketplace) ────────────────────────────────────────────
+
+const mpOAuthAuthorizeURL = "https://auth.mercadopago.com.mx/authorization"
+
+type mpOAuthTokenRequest struct {
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+	GrantType    string `json:"grant_type"`
+	Code         string `json:"code,omitempty"`
+	RedirectURI  string `json:"redirect_uri,omitempty"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+}
+
+type mpOAuthTokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	UserID       int64  `json:"user_id"`
+	ExpiresIn    int64  `json:"expires_in"`
+	Message      string `json:"message,omitempty"`
+}
+
+// GetOAuthURL devuelve la URL de autorización de Mercado Pago para vincular
+// la cuenta de un propietario (Marketplace/OAuth Connect).
+func (p *MercadoPagoProvider) GetOAuthURL(state string) string {
+	q := url.Values{}
+	q.Set("client_id", p.clientID)
+	q.Set("response_type", "code")
+	q.Set("platform_id", "mp")
+	q.Set("redirect_uri", p.redirectURI)
+	q.Set("state", state)
+	return mpOAuthAuthorizeURL + "?" + q.Encode()
+}
+
+// ExchangeOAuthCode intercambia el "code" del callback de OAuth por los
+// tokens de la cuenta del propietario (vendedor).
+func (p *MercadoPagoProvider) ExchangeOAuthCode(ctx context.Context, code string) (string, string, string, time.Time, error) {
+	result, err := p.oauthTokenRequest(ctx, mpOAuthTokenRequest{
+		ClientID:     p.clientID,
+		ClientSecret: p.clientSecret,
+		GrantType:    "authorization_code",
+		Code:         code,
+		RedirectURI:  p.redirectURI,
+	})
+	if err != nil {
+		return "", "", "", time.Time{}, err
+	}
+	expiresAt := time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)
+	return strconv.FormatInt(result.UserID, 10), result.AccessToken, result.RefreshToken, expiresAt, nil
+}
+
+// RefreshSellerToken renueva el access_token de un vendedor usando su refresh_token.
+func (p *MercadoPagoProvider) RefreshSellerToken(ctx context.Context, refreshToken string) (string, string, time.Time, error) {
+	result, err := p.oauthTokenRequest(ctx, mpOAuthTokenRequest{
+		ClientID:     p.clientID,
+		ClientSecret: p.clientSecret,
+		GrantType:    "refresh_token",
+		RefreshToken: refreshToken,
+	})
+	if err != nil {
+		return "", "", time.Time{}, err
+	}
+	expiresAt := time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)
+	return result.AccessToken, result.RefreshToken, expiresAt, nil
+}
+
+func (p *MercadoPagoProvider) oauthTokenRequest(ctx context.Context, body mpOAuthTokenRequest) (*mpOAuthTokenResponse, error) {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal oauth request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, mpBaseURL+"/oauth/token", bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("MP oauth request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result mpOAuthTokenResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode MP oauth response: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("MP %d: %s", resp.StatusCode, result.Message)
+	}
+	return &result, nil
 }

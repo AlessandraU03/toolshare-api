@@ -27,6 +27,21 @@ type User struct {
 	UpdatedAt    time.Time
 }
 
+// MPSellerAccount representa la cuenta de Mercado Pago que un propietario
+// vinculó vía OAuth (Marketplace) para recibir directamente su parte de cada
+// pago. Si SellerUserID está vacío, el propietario no ha conectado su cuenta.
+type MPSellerAccount struct {
+	SellerUserID string
+	AccessToken  string
+	RefreshToken string
+	ExpiresAt    time.Time
+}
+
+// Connected indica si el propietario ya vinculó una cuenta de Mercado Pago.
+func (a *MPSellerAccount) Connected() bool {
+	return a != nil && a.SellerUserID != ""
+}
+
 // SavedCard es una tarjeta guardada por el usuario en su Customer de Mercado
 // Pago, para pagar rentas futuras sin volver a capturar los datos completos.
 type SavedCard struct {

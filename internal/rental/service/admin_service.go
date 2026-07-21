@@ -8,22 +8,26 @@ import (
 	rentalports "github.com/yourusername/tool-inventory-api/internal/rental/ports"
 	sharedports "github.com/yourusername/tool-inventory-api/internal/shared/ports"
 	toolports "github.com/yourusername/tool-inventory-api/internal/tool/ports"
+	userports "github.com/yourusername/tool-inventory-api/internal/user/ports"
 )
 
 type adminService struct {
 	rentalRepo      rentalports.RentalRepository
 	toolRepo        toolports.ToolRepository
+	userRepo        userports.UserRepository
 	paymentProvider sharedports.PaymentProvider
 }
 
 func NewAdminService(
 	rentalRepo rentalports.RentalRepository,
 	toolRepo toolports.ToolRepository,
+	userRepo userports.UserRepository,
 	paymentProvider sharedports.PaymentProvider,
 ) rentalports.AdminService {
 	return &adminService{
 		rentalRepo:      rentalRepo,
 		toolRepo:        toolRepo,
+		userRepo:        userRepo,
 		paymentProvider: paymentProvider,
 	}
 }
@@ -73,9 +77,12 @@ func (s *adminService) ResolveDispute(ctx context.Context, inp rentalports.Resol
 
 	// Dictaminar en Mercado Pago
 	if s.paymentProvider != nil && updated.MPPaymentID != "" {
-		if inp.Action == "capture" {
+		sellerToken, tokenErr := resolveSellerAccessToken(ctx, s.userRepo, s.paymentProvider, updated.OwnerID)
+		if tokenErr != nil {
+			log.Printf("WARN [Admin]: no se pudo obtener token del propietario para dictaminar pago %s: %v", updated.MPPaymentID, tokenErr)
+		} else if inp.Action == "capture" {
 			// Capturar el deducible a favor de la plataforma/propietario
-			if err := s.paymentProvider.Capture(ctx, updated.MPPaymentID, updated.DeductibleAmount); err != nil {
+			if err := s.paymentProvider.Capture(ctx, updated.MPPaymentID, updated.DeductibleAmount, sellerToken); err != nil {
 				log.Printf("WARN [Admin]: no se pudo capturar pago %s: %v", updated.MPPaymentID, err)
 			} else {
 				updated.PaymentStatus = "captured_admin"
@@ -83,7 +90,7 @@ func (s *adminService) ResolveDispute(ctx context.Context, inp rentalports.Resol
 			}
 		} else if inp.Action == "refund" {
 			// Cancelar pre-autorización para devolver dinero al solicitante
-			if err := s.paymentProvider.Cancel(ctx, updated.MPPaymentID); err != nil {
+			if err := s.paymentProvider.Cancel(ctx, updated.MPPaymentID, sellerToken); err != nil {
 				log.Printf("WARN [Admin]: no se pudo cancelar pago %s: %v", updated.MPPaymentID, err)
 			} else {
 				updated.PaymentStatus = "refunded_admin"

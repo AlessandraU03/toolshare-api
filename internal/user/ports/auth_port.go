@@ -44,4 +44,17 @@ type AuthService interface {
 	AddCard(ctx context.Context, userID uuid.UUID, cardToken string) (*userdomain.SavedCard, error)
 	ListCards(ctx context.Context, userID uuid.UUID) ([]*userdomain.SavedCard, error)
 	DeleteCard(ctx context.Context, userID uuid.UUID, cardID uuid.UUID) error
+
+	// ── Marketplace / OAuth Connect (vínculo de cuenta MP del propietario) ──
+
+	// StartMPConnect genera la URL de autorización de Mercado Pago para que
+	// el propietario vincule su propia cuenta.
+	StartMPConnect(ctx context.Context, userID uuid.UUID) (authURL string, err error)
+
+	// HandleMPConnectCallback procesa el "code" recibido tras la autorización
+	// y guarda los tokens de la cuenta del propietario.
+	HandleMPConnectCallback(ctx context.Context, code, state string) error
+
+	// GetMPConnectStatus indica si el usuario ya vinculó su cuenta MP.
+	GetMPConnectStatus(ctx context.Context, userID uuid.UUID) (connected bool, err error)
 }
