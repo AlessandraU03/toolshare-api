@@ -35,9 +35,9 @@ var (
 const SubscriptionExternalRefPrefix = "sub:"
 
 // ProMonthlyPrice es el precio mensual del plan Pro en MXN.
-// TODO: temporalmente en $10 para pruebas — regresar a 69.0 antes de producción real.
+// TODO: temporalmente en $20 para pruebas — regresar a 69.0 antes de producción real.
 // $1 no funcionaba: Mercado Pago México exige mínimo $5-10 MXN para pagos con tarjeta.
-const ProMonthlyPrice = 10.0
+const ProMonthlyPrice = 20.0
 
 type authService struct {
 	userRepo        userports.UserRepository
