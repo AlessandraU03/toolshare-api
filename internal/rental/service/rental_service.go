@@ -106,8 +106,6 @@ func (s *rentalService) Create(ctx context.Context, inp rentalports.CreateRental
 		return nil, errors.New("riesgo_colusion: se detectó coincidencia de dispositivo o red local entre el propietario y el arrendatario")
 	}
 
-	deductible := tool.EstimatedValue * 0.10
-
 	method := inp.PaymentMethod
 	if method == "" {
 		method = "card"
@@ -117,18 +115,33 @@ func (s *rentalService) Create(ctx context.Context, inp rentalports.CreateRental
 	}
 
 	rental := &rentaldomain.Rental{
-		ToolID:           inp.ToolID,
-		RequesterID:      inp.RequesterID,
-		OwnerID:          tool.OwnerID,
-		StartDate:        inp.StartDate,
-		EndDate:          inp.EndDate,
-		DailyRate:        tool.DailyRate,
-		DeductibleAmount: deductible,
-		PaymentMethod:    method,
-		Status:           rentaldomain.RentalStatusPending,
+		ToolID:        inp.ToolID,
+		RequesterID:   inp.RequesterID,
+		OwnerID:       tool.OwnerID,
+		StartDate:     inp.StartDate,
+		EndDate:       inp.EndDate,
+		DailyRate:     tool.DailyRate,
+		PaymentMethod: method,
+		Status:        rentaldomain.RentalStatusPending,
 	}
 	rental.TotalAmount = rental.CalculateTotal()
 	rental.CommissionAmount = rental.CalculateCommission()
+
+	// Por debajo de DepositThreshold no se pide depósito: la fricción de
+	// pedirlo en herramienta manual barata cuesta más en adopción que lo que
+	// protege. Arriba del umbral, el depósito protege según lo que vale la
+	// herramienta, no según cuánto cuesta rentarla un día — así que en rentas
+	// cortas se tope a 2x el total de la renta para que no se sienta
+	// absurdamente desproporcionado (en rentas largas el total ya supera el
+	// 10% del valor por si solo, así que el tope no aplica ahi).
+	var deductible float64
+	if tool.EstimatedValue >= rentaldomain.DepositThreshold {
+		deductible = tool.EstimatedValue * rentaldomain.DepositRate
+		if cap := rental.TotalAmount * 2; deductible > cap {
+			deductible = cap
+		}
+	}
+	rental.DeductibleAmount = deductible
 
 	// Pre-autorizar pago si se proporcionó token de tarjeta
 	var sellerToken string

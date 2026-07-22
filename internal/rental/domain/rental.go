@@ -23,6 +23,17 @@ const (
 // disputa).
 const ServiceCommissionRate = 0.05
 
+// DepositThreshold: herramientas con estimated_value por debajo de este
+// monto no piden depósito de garantía. Por debajo de aquí es prácticamente
+// todo herramienta manual/medición (ver catalogo_semilla) donde la fricción
+// de pedir depósito le cuesta más a la adopción que lo que protege; arriba
+// caen los eléctricos/neumáticos/energía, donde sí hay valor real en riesgo.
+const DepositThreshold = 1000.0
+
+// DepositRate es el porcentaje del valor estimado que se retiene como
+// depósito de garantía para herramientas por arriba de DepositThreshold.
+const DepositRate = 0.10
+
 // Rental representa una renta de herramienta.
 type Rental struct {
 	ID            uuid.UUID
