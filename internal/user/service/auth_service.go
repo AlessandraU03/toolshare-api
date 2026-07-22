@@ -35,7 +35,8 @@ var (
 const SubscriptionExternalRefPrefix = "sub:"
 
 // ProMonthlyPrice es el precio mensual del plan Pro en MXN.
-const ProMonthlyPrice = 69.0
+// TODO: temporalmente en $1 para pruebas — regresar a 69.0 antes de producción real.
+const ProMonthlyPrice = 1.0
 
 type authService struct {
 	userRepo        userports.UserRepository
