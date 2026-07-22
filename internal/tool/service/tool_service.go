@@ -227,7 +227,10 @@ func (s *toolService) CreateInsurancePreference(ctx context.Context, toolID uuid
 	notificationURL := os.Getenv("MP_NOTIFICATION_URL")
 	backURL := os.Getenv("MP_BACK_URL")
 	if backURL == "" {
-		backURL = "toolshare://payment"
+		// auto_return de MP exige una URL absoluta http(s); "toolshare://" no
+		// es válida y deja el botón "Pagar" inerte. El WebView de Flutter
+		// intercepta esta ruta antes de que la navegación se complete.
+		backURL = "https://toolshare-api.up.railway.app/payment"
 	}
 
 	out, err := s.paymentProvider.CreatePreference(ctx, sharedports.CreatePreferenceInput{

@@ -33,6 +33,15 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string,
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
+	// Destino de las back_urls de Mercado Pago (Checkout Pro exige una URL
+	// absoluta http(s), no un esquema de app como "toolshare://"). En la app,
+	// el WebView intercepta la navegación hacia aquí antes de que complete;
+	// esta ruta es solo un respaldo por si el redirect automático de MP la
+	// alcanza a cargar primero.
+	r.GET("/payment/:status", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": c.Param("status"), "message": "Puedes cerrar esta ventana y volver a la app."})
+	})
+
 	// Config pública y segura de exponer al cliente (nunca la clave secreta de MP).
 	r.GET("/api/config", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"mp_public_key": os.Getenv("MP_PUBLIC_KEY")})
