@@ -41,29 +41,48 @@ type PricingQueryRequest struct {
 }
 
 type ToolResponse struct {
-	ID                      string  `json:"id"`
-	OwnerID                 string  `json:"owner_id"`
-	OwnerName               string  `json:"owner_name"`
-	Name                    string  `json:"name"`
-	Description             string  `json:"description"`
-	Category                string  `json:"category"`
-	PhotoURL                string  `json:"photo_url,omitempty"`
-	EstimatedValue          float64 `json:"estimated_value"`
-	DailyRate               float64 `json:"daily_rate"`
-	SuggestedMinRate        float64 `json:"suggested_min_daily_rate"`
-	Latitude                float64 `json:"latitude"`
-	Longitude               float64 `json:"longitude"`
-	IsAvailable             bool    `json:"is_available"`
-	ConditionScore          float64 `json:"condition_score"`
-	Brand                   string  `json:"brand"`
-	AgeMonths               int     `json:"age_months"`
-	City                    string  `json:"city"`
-	State                   string  `json:"state"`
-	PriceSource             string  `json:"price_source"`
-	WantsInsurance          bool    `json:"wants_insurance"`
-	InsuranceMonthlyPremium float64 `json:"insurance_monthly_premium"`
-	CreatedAt               string  `json:"created_at"`
-	UpdatedAt               string  `json:"updated_at"`
+	ID                      string              `json:"id"`
+	OwnerID                 string              `json:"owner_id"`
+	OwnerName               string              `json:"owner_name"`
+	Name                    string              `json:"name"`
+	Description             string              `json:"description"`
+	Category                string              `json:"category"`
+	PhotoURL                string              `json:"photo_url,omitempty"`
+	EstimatedValue          float64             `json:"estimated_value"`
+	DailyRate               float64             `json:"daily_rate"`
+	SuggestedMinRate        float64             `json:"suggested_min_daily_rate"`
+	Latitude                float64             `json:"latitude"`
+	Longitude               float64             `json:"longitude"`
+	IsAvailable             bool                `json:"is_available"`
+	ConditionScore          float64             `json:"condition_score"`
+	Brand                   string              `json:"brand"`
+	AgeMonths               int                 `json:"age_months"`
+	City                    string              `json:"city"`
+	State                   string              `json:"state"`
+	PriceSource             string              `json:"price_source"`
+	WantsInsurance          bool                `json:"wants_insurance"`
+	InsuranceMonthlyPremium float64             `json:"insurance_monthly_premium"`
+	CreatedAt               string              `json:"created_at"`
+	UpdatedAt               string              `json:"updated_at"`
+	Photos                  []ToolPhotoResponse `json:"photos,omitempty"`
+}
+
+type ToolPhotoResponse struct {
+	ID             int     `json:"id"`
+	PhotoURL       string  `json:"photo_url"`
+	ConditionScore float64 `json:"condition_score"`
+}
+
+func ToToolPhotoResponse(photos []*tooldomain.ToolPhoto) []ToolPhotoResponse {
+	resp := make([]ToolPhotoResponse, 0, len(photos))
+	for _, p := range photos {
+		resp = append(resp, ToolPhotoResponse{
+			ID:             p.ID,
+			PhotoURL:       p.PhotoURL,
+			ConditionScore: p.ConditionScore,
+		})
+	}
+	return resp
 }
 
 func ToToolResponse(t *tooldomain.Tool) ToolResponse {

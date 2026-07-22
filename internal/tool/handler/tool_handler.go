@@ -83,7 +83,17 @@ func (h *ToolHandler) GetMyTools(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, ToToolListResponse(tools))
+	// "Mis herramientas" está acotado al propio propietario, así que el N+1
+	// aquí es aceptable — la pantalla de Editar necesita ver todas las fotos
+	// reales (no solo la portada) para no pedirlas de nuevo.
+	resp := ToToolListResponse(tools)
+	for i, t := range tools {
+		if photos, err := h.toolSvc.GetPhotos(c.Request.Context(), t.ID); err == nil {
+			resp[i].Photos = ToToolPhotoResponse(photos)
+		}
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 // GetTool godoc
@@ -108,7 +118,12 @@ func (h *ToolHandler) GetTool(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, ToToolResponse(tool))
+	resp := ToToolResponse(tool)
+	if photos, err := h.toolSvc.GetPhotos(c.Request.Context(), id); err == nil {
+		resp.Photos = ToToolPhotoResponse(photos)
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 // CreateTool godoc
@@ -312,7 +327,12 @@ func (h *ToolHandler) UploadPhoto(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, ToToolResponse(tool))
+	resp := ToToolResponse(tool)
+	if photos, err := h.toolSvc.GetPhotos(c.Request.Context(), id); err == nil {
+		resp.Photos = ToToolPhotoResponse(photos)
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 // GetPricingSuggestion godoc

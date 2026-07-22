@@ -75,6 +75,7 @@ type ExtractTicketPriceOutput struct {
 type ToolService interface {
 	Create(ctx context.Context, inp CreateToolInput) (*tooldomain.Tool, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*tooldomain.Tool, error)
+	GetPhotos(ctx context.Context, toolID uuid.UUID) ([]*tooldomain.ToolPhoto, error)
 	List(ctx context.Context, filter ToolFilter) ([]*tooldomain.Tool, error)
 	Update(ctx context.Context, id uuid.UUID, ownerID uuid.UUID, inp UpdateToolInput) (*tooldomain.Tool, error)
 	Delete(ctx context.Context, id uuid.UUID, ownerID uuid.UUID) error

@@ -80,9 +80,9 @@ func (s *toolService) Create(ctx context.Context, inp toolports.CreateToolInput)
 		// cambio la herramienta quedaba publicada sin ninguna foto real.
 		IsAvailable: false,
 		Brand:       inp.Brand,
-		AgeMonths:      inp.AgeMonths,
-		City:           inp.City,
-		State:          inp.State,
+		AgeMonths:   inp.AgeMonths,
+		City:        inp.City,
+		State:       inp.State,
 		ConditionScore: func() float64 {
 			if inp.ConditionScore > 0 {
 				return inp.ConditionScore
@@ -104,6 +104,10 @@ func (s *toolService) Create(ctx context.Context, inp toolports.CreateToolInput)
 
 func (s *toolService) GetByID(ctx context.Context, id uuid.UUID) (*tooldomain.Tool, error) {
 	return s.toolRepo.FindByID(ctx, id)
+}
+
+func (s *toolService) GetPhotos(ctx context.Context, toolID uuid.UUID) ([]*tooldomain.ToolPhoto, error) {
+	return s.toolPhotoRepo.FindByToolID(ctx, toolID)
 }
 
 func (s *toolService) List(ctx context.Context, filter toolports.ToolFilter) ([]*tooldomain.Tool, error) {
