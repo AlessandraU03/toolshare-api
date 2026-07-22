@@ -215,7 +215,13 @@ func (s *authService) VerifyKyc(ctx context.Context, ineFilename string, ine io.
 
 	req.Header.Set("Content-Type", bodyWriter.FormDataContentType())
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	// 90s, no 10s: /verify-kyc hace Haar Cascade + arranque del worker
+	// aislado de PaddleOCR (cold start puede tardar decenas de segundos) +
+	// carga e inferencia de ArcFace para la comparación facial real. Con un
+	// timeout corto, la primera verificación después de que el servicio de
+	// ML arranca (o tras estar inactivo un rato) fallaba con "context
+	// deadline exceeded" antes de que terminara de calentar.
+	client := &http.Client{Timeout: 90 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("ejecutar request KYC a ML: %w", err)
