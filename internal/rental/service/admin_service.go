@@ -2,6 +2,8 @@ package rentalservice
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 
 	rentaldomain "github.com/yourusername/tool-inventory-api/internal/rental/domain"
@@ -57,15 +59,61 @@ func (s *adminService) ListRentals(ctx context.Context, status string) ([]*renta
 	return s.rentalRepo.FindAll(ctx, status)
 }
 
+// ErrDisputeActionInvalid señala un valor de `action` distinto a "capture"/"refund".
+var ErrDisputeActionInvalid = errors.New("acción de dictamen inválida: debe ser \"capture\" o \"refund\"")
+
+// ErrDisputePaymentFailed señala que Mercado Pago rechazó la operación de
+// cobro/reembolso del dictamen. La renta se deja en "disputed" (sin tocar su
+// estado ni el del pago) para que el admin pueda reintentar, en vez de
+// marcarla resuelta con el dinero sin moverse de verdad.
+var ErrDisputePaymentFailed = errors.New("no se pudo procesar el pago en Mercado Pago para este dictamen")
+
 func (s *adminService) ResolveDispute(ctx context.Context, inp rentalports.ResolveDisputeInput) (*rentaldomain.Rental, error) {
+	if inp.Action != "capture" && inp.Action != "refund" {
+		return nil, ErrDisputeActionInvalid
+	}
+
 	rental, err := s.rentalRepo.FindByID(ctx, inp.RentalID)
 	if err != nil {
 		return nil, err
+	}
+	if rental.Status != rentaldomain.RentalStatusDisputed {
+		return nil, errors.New("la renta no está en disputa")
+	}
+
+	// El dictamen en Mercado Pago se resuelve ANTES de tocar la base de
+	// datos: si el cobro/reembolso falla, la renta se queda tal cual
+	// (sigue en "disputed") en vez de marcarse resuelta con el dinero sin
+	// moverse — así el admin puede ver el error y reintentar.
+	newPaymentStatus := rental.PaymentStatus
+	if s.paymentProvider != nil && rental.MPPaymentID != "" {
+		sellerToken, tokenErr := resolveSellerAccessToken(ctx, s.userRepo, s.paymentProvider, rental.OwnerID)
+		if tokenErr != nil {
+			return nil, fmt.Errorf("%w: %v", ErrDisputePaymentFailed, tokenErr)
+		}
+
+		if inp.Action == "capture" {
+			// El depósito ya fue capturado como penalización al reportar la
+			// disputa (ver RentalService.Dispute); aquí solo se confirma el
+			// dictamen a favor del propietario, sin volver a cobrar.
+			newPaymentStatus = "captured_admin"
+		} else {
+			// inp.Action == "refund": el depósito ya está capturado
+			// (aprobado) para este punto, así que hay que reembolsarlo de
+			// verdad — Cancel() no sirve porque solo libera
+			// pre-autorizaciones sin capturar.
+			if err := s.paymentProvider.Refund(ctx, rental.MPPaymentID, rental.DeductibleAmount, sellerToken); err != nil {
+				log.Printf("ERROR [Admin]: no se pudo reembolsar pago %s: %v", rental.MPPaymentID, err)
+				return nil, fmt.Errorf("%w: %v", ErrDisputePaymentFailed, err)
+			}
+			newPaymentStatus = "refunded_admin"
+		}
 	}
 
 	if err := rental.ResolveDispute(inp.Action, inp.Notes); err != nil {
 		return nil, err
 	}
+	rental.PaymentStatus = newPaymentStatus
 
 	updated, err := s.rentalRepo.Update(ctx, rental)
 	if err != nil {
@@ -74,30 +122,6 @@ func (s *adminService) ResolveDispute(ctx context.Context, inp rentalports.Resol
 
 	// Restaurar disponibilidad de la herramienta
 	_ = s.toolRepo.SetAvailability(ctx, updated.ToolID, true)
-
-	// Dictaminar en Mercado Pago
-	if s.paymentProvider != nil && updated.MPPaymentID != "" {
-		sellerToken, tokenErr := resolveSellerAccessToken(ctx, s.userRepo, s.paymentProvider, updated.OwnerID)
-		if tokenErr != nil {
-			log.Printf("WARN [Admin]: no se pudo obtener token del propietario para dictaminar pago %s: %v", updated.MPPaymentID, tokenErr)
-		} else if inp.Action == "capture" {
-			// Capturar el deducible a favor de la plataforma/propietario
-			if err := s.paymentProvider.Capture(ctx, updated.MPPaymentID, updated.DeductibleAmount, sellerToken); err != nil {
-				log.Printf("WARN [Admin]: no se pudo capturar pago %s: %v", updated.MPPaymentID, err)
-			} else {
-				updated.PaymentStatus = "captured_admin"
-				updated, _ = s.rentalRepo.Update(ctx, updated)
-			}
-		} else if inp.Action == "refund" {
-			// Cancelar pre-autorización para devolver dinero al solicitante
-			if err := s.paymentProvider.Cancel(ctx, updated.MPPaymentID, sellerToken); err != nil {
-				log.Printf("WARN [Admin]: no se pudo cancelar pago %s: %v", updated.MPPaymentID, err)
-			} else {
-				updated.PaymentStatus = "refunded_admin"
-				updated, _ = s.rentalRepo.Update(ctx, updated)
-			}
-		}
-	}
 
 	return updated, nil
 }

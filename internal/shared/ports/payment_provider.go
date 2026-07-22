@@ -75,9 +75,19 @@ type PaymentProvider interface {
 	// usado al crear el pago en Authorize (vacío si no hubo split).
 	Capture(ctx context.Context, paymentID string, amount float64, sellerAccessToken string) error
 
-	// Cancel libera la pre-autorización y devuelve los fondos al solicitante.
-	// sellerAccessToken debe ser el mismo usado al crear el pago en Authorize.
+	// Cancel libera la pre-autorización (pago aún no capturado, estado
+	// "authorized") y devuelve los fondos al solicitante. sellerAccessToken
+	// debe ser el mismo usado al crear el pago en Authorize.
+	// No funciona sobre un pago que ya fue capturado (estado "approved") —
+	// para ese caso usar Refund.
 	Cancel(ctx context.Context, paymentID string, sellerAccessToken string) error
+
+	// Refund devuelve el dinero de un pago que YA fue capturado/aprobado
+	// (por ejemplo, el depósito de garantía cobrado al reportar una
+	// disputa). amount <= 0 solicita un reembolso total; un valor mayor a
+	// cero solicita un reembolso parcial por ese monto. sellerAccessToken
+	// debe ser el mismo usado al crear el pago en Authorize.
+	Refund(ctx context.Context, paymentID string, amount float64, sellerAccessToken string) error
 
 	// CreatePreference crea una preferencia de Checkout Pro y devuelve el init_point.
 	CreatePreference(ctx context.Context, inp CreatePreferenceInput) (CreatePreferenceOutput, error)

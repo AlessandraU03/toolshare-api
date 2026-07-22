@@ -178,8 +178,17 @@ func (s *rentalService) Create(ctx context.Context, inp rentalports.CreateRental
 		return nil, err
 	}
 
-	if err := s.toolRepo.SetAvailability(ctx, tool.ID, false); err != nil {
-		return nil, err
+	// En efectivo el bloqueo es inmediato: no hay pasarela de por medio, la
+	// reserva en sí ya compromete la herramienta. En tarjeta, el pago real
+	// ocurre después en el checkout de Mercado Pago (Checkout Pro) y se
+	// confirma vía webhook — recién ahí (UpdatePaymentStatus, status
+	// "approved") se bloquea la herramienta. Antes de eso solo es una
+	// solicitud pendiente de pago; no debe verse como "rentada" sin que se
+	// haya cobrado nada todavía.
+	if method == "cash" {
+		if err := s.toolRepo.SetAvailability(ctx, tool.ID, false); err != nil {
+			return nil, err
+		}
 	}
 
 	return created, nil
@@ -417,6 +426,24 @@ func (s *rentalService) UpdatePaymentStatus(ctx context.Context, rentalID uuid.U
 	}
 	rental.MPPaymentID = paymentID
 	rental.PaymentStatus = status
+
+	switch status {
+	case "approved":
+		// Recién aquí se confirma que el pago con tarjeta se cobró de
+		// verdad: apenas ahora se bloquea la herramienta como rentada (ver
+		// nota en Create).
+		if rental.PaymentMethod == "card" {
+			_ = s.toolRepo.SetAvailability(ctx, rental.ToolID, false)
+		}
+	case "rejected", "cancelled":
+		// El pago no se completó: si la solicitud seguía pendiente de pago,
+		// se cancela para no dejarla colgada apareciéndole al solicitante
+		// como una reserva viva que nunca se cobró.
+		if rental.Status == rentaldomain.RentalStatusPending {
+			rental.Status = rentaldomain.RentalStatusCancelled
+		}
+	}
+
 	_, err = s.rentalRepo.Update(ctx, rental)
 	if err == nil {
 		pubsub.Publish(rental.ID)

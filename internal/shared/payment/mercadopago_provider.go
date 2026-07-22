@@ -187,6 +187,18 @@ func (p *MercadoPagoProvider) Cancel(ctx context.Context, paymentID string, sell
 	return p.put(ctx, "/v1/payments/"+paymentID, mpUpdateRequest{Status: "cancelled"}, sellerAccessToken)
 }
 
+// Refund devuelve el dinero de un pago ya capturado/aprobado vía
+// POST /v1/payments/{id}/refunds. Sin "amount" en el body, MP hace un
+// reembolso total; con "amount" > 0, un reembolso parcial.
+func (p *MercadoPagoProvider) Refund(ctx context.Context, paymentID string, amount float64, sellerAccessToken string) error {
+	body := map[string]float64{}
+	if amount > 0 {
+		body["amount"] = amount
+	}
+	_, err := p.post(ctx, "/v1/payments/"+paymentID+"/refunds", body, sellerAccessToken)
+	return err
+}
+
 func (p *MercadoPagoProvider) CreatePreference(ctx context.Context, inp sharedports.CreatePreferenceInput) (sharedports.CreatePreferenceOutput, error) {
 	body := mpPreferenceRequest{
 		Items: []mpItem{

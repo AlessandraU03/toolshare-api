@@ -45,6 +45,10 @@ func (p *MockPaymentProvider) Cancel(_ context.Context, paymentID string, seller
 	return nil
 }
 
+func (p *MockPaymentProvider) Refund(_ context.Context, paymentID string, amount float64, sellerAccessToken string) error {
+	return nil
+}
+
 func (p *MockPaymentProvider) CreatePreference(_ context.Context, inp sharedports.CreatePreferenceInput) (sharedports.CreatePreferenceOutput, error) {
 	q := url.Values{}
 	q.Set("external_reference", inp.ExternalRef)

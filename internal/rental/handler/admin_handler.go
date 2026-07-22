@@ -1,11 +1,14 @@
 package rentalhandler
 
 import (
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	rentalports "github.com/yourusername/tool-inventory-api/internal/rental/ports"
+	rentalservice "github.com/yourusername/tool-inventory-api/internal/rental/service"
 )
 
 type AdminHandler struct {
@@ -77,7 +80,18 @@ func (h *AdminHandler) ResolveDispute(c *gin.Context) {
 
 	resolved, err := h.svc.ResolveDispute(c.Request.Context(), inp)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		switch {
+		case errors.Is(err, rentalservice.ErrDisputeActionInvalid):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, rentalservice.ErrDisputePaymentFailed):
+			// 502: el dictamen es válido pero Mercado Pago rechazó el
+			// cobro/reembolso — la renta se quedó en "disputed" para reintentar.
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		case strings.Contains(err.Error(), "no está en disputa"):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
 		return
 	}
 	c.JSON(http.StatusOK, ToRentalResponse(resolved))
