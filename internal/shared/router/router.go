@@ -38,9 +38,7 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string,
 	// el WebView intercepta la navegación hacia aquí antes de que complete;
 	// esta ruta es solo un respaldo por si el redirect automático de MP la
 	// alcanza a cargar primero.
-	r.GET("/payment/:status", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": c.Param("status"), "message": "Puedes cerrar esta ventana y volver a la app."})
-	})
+	r.GET("/payment/:status", h.Webhook.PaymentReturn)
 
 	// Config pública y segura de exponer al cliente (nunca la clave secreta de MP).
 	r.GET("/api/config", func(c *gin.Context) {
@@ -111,6 +109,7 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string,
 			owner.GET("/tools/auto-valuate", h.Tool.AutoValuate)
 			owner.POST("/tools/:id/insurance/preference", h.Tool.CreateInsurancePreference)
 			owner.POST("/tools/:id/insurance/confirm", h.Tool.ConfirmInsurancePayment)
+			owner.POST("/tools/:id/insurance/reconcile", h.Tool.ReconcileInsurance)
 			owner.POST("/tools/:id/insurance/cancel", h.Tool.CancelInsurance)
 		}
 
@@ -122,6 +121,7 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string,
 			rentals.GET("/:id", h.Rental.GetRental)
 			rentals.POST("/:id/preference", h.Rental.CreatePreference)
 			rentals.POST("/:id/confirm-payment", h.Rental.ConfirmPayment)
+			rentals.POST("/:id/reconcile-payment", h.Rental.ReconcilePayment)
 			rentals.POST("/:id/confirm-delivery", h.Rental.ConfirmDelivery)
 			rentals.POST("/:id/confirm-return", h.Rental.ConfirmReturn)
 			rentals.POST("/:id/dispute", h.Rental.Dispute)

@@ -50,6 +50,10 @@ type RentalService interface {
 	// tardar o no llegar). Nunca confía en el estado que diga el cliente:
 	// vuelve a consultar el pago directo con MP antes de actualizar nada.
 	ConfirmPayment(ctx context.Context, rentalID uuid.UUID, requesterID uuid.UUID, paymentID string) (*rentaldomain.Rental, error)
+	// ReconcilePayment reconcilia el pago SIN payment_id, buscándolo en MP por
+	// external_reference. Respaldo para cuando el redirect del checkout nunca
+	// se interceptó (terminó en el navegador externo).
+	ReconcilePayment(ctx context.Context, rentalID uuid.UUID, requesterID uuid.UUID) (*rentaldomain.Rental, error)
 
 	GetMessages(ctx context.Context, rentalID uuid.UUID, userID uuid.UUID) ([]*rentaldomain.Message, error)
 	SendMessage(ctx context.Context, inp SendMessageInput) (*rentaldomain.Message, error)

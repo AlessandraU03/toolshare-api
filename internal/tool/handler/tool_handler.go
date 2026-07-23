@@ -649,6 +649,36 @@ func (h *ToolHandler) ConfirmInsurancePayment(c *gin.Context) {
 	c.JSON(http.StatusOK, ToToolResponse(tool))
 }
 
+// ReconcileInsurance godoc
+// @Summary      Reconciliar el pago del seguro sin payment_id
+// @Description  Busca el pago del seguro en Mercado Pago por external_reference y activa el seguro si está aprobado. Lo usa la app al regresar del checkout cuando no se pudo interceptar el payment_id.
+// @Tags         herramientas
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id path string true "UUID de la herramienta"
+// @Success      200 {object} ToolResponse
+// @Router       /tools/{id}/insurance/reconcile [post]
+func (h *ToolHandler) ReconcileInsurance(c *gin.Context) {
+	id, err := shared.ParseUUID(c, "id")
+	if err != nil {
+		return
+	}
+	ownerID := sharedmiddleware.UserIDFromContext(c)
+
+	tool, err := h.toolSvc.ReconcileInsurance(c.Request.Context(), id, ownerID)
+	if err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrForbidden):
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, ToToolResponse(tool))
+}
+
 // CancelInsurance godoc
 // @Summary      Cancelar el seguro de una herramienta
 // @Description  Desactiva el seguro; no genera reembolso de la prima ya pagada, solo detiene la cobertura

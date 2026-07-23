@@ -517,6 +517,49 @@ func (s *rentalService) ConfirmPayment(ctx context.Context, rentalID uuid.UUID, 
 	return s.rentalRepo.FindByID(ctx, rentalID)
 }
 
+// ReconcilePayment reconcilia el estado del pago de una renta SIN necesitar el
+// payment_id. Es el respaldo para cuando el checkout de MP terminó en el
+// navegador externo y la app nunca interceptó el redirect: busca el pago en MP
+// por external_reference (= ID de la renta) y actualiza el estado. Idempotente.
+func (s *rentalService) ReconcilePayment(ctx context.Context, rentalID uuid.UUID, requesterID uuid.UUID) (*rentaldomain.Rental, error) {
+	rental, err := s.rentalRepo.FindByID(ctx, rentalID)
+	if err != nil {
+		return nil, err
+	}
+	if rental.RequesterID != requesterID {
+		return nil, ErrUnauthorized
+	}
+
+	// Ya confirmado antes: nada que reconciliar.
+	if rental.PaymentStatus == "approved" || rental.PaymentStatus == "authorized" {
+		return rental, nil
+	}
+	if s.paymentProvider == nil {
+		return nil, fmt.Errorf("%w: pasarela de pagos no configurada", ErrPaymentFailed)
+	}
+
+	sellerToken, err := s.sellerAccessToken(ctx, rental.OwnerID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrPaymentFailed, err)
+	}
+
+	info, err := s.paymentProvider.SearchPaymentByExternalRef(ctx, rentalID.String(), sellerToken)
+	if err != nil {
+		// No se encontró un pago todavía: la renta sigue pendiente. No es un
+		// error fatal — se devuelve la renta tal cual para que la UI muestre
+		// "aún pendiente" en vez de un error.
+		return rental, nil
+	}
+	if info.ExternalRef != rentalID.String() {
+		return rental, nil
+	}
+
+	if err := s.UpdatePaymentStatus(ctx, rentalID, info.ID, info.Status, info.PaymentTypeID); err != nil {
+		return nil, err
+	}
+	return s.rentalRepo.FindByID(ctx, rentalID)
+}
+
 func (s *rentalService) GetMessages(ctx context.Context, rentalID uuid.UUID, userID uuid.UUID) ([]*rentaldomain.Message, error) {
 	rental, err := s.rentalRepo.FindByID(ctx, rentalID)
 	if err != nil {

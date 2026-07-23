@@ -302,6 +302,55 @@ func (p *MercadoPagoProvider) GetPaymentInfo(ctx context.Context, paymentID stri
 	}, nil
 }
 
+// SearchPaymentByExternalRef busca el pago de una renta por su
+// external_reference. Se usa la cuenta del vendedor (propietario) para buscar,
+// que es la misma bajo la que se creó el pago en el flujo de marketplace; si
+// viene vacío, cae al token de la plataforma. De todos los resultados prefiere
+// uno aprobado; si no hay, devuelve el más reciente.
+func (p *MercadoPagoProvider) SearchPaymentByExternalRef(ctx context.Context, externalRef, sellerAccessToken string) (sharedports.PaymentInfo, error) {
+	url := mpBaseURL + "/v1/payments/search?sort=date_created&criteria=desc&external_reference=" + externalRef
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return sharedports.PaymentInfo{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+p.tokenOrDefault(sellerAccessToken))
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return sharedports.PaymentInfo{}, fmt.Errorf("MP search payment: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var out struct {
+		Results []mpPaymentDetail `json:"results"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return sharedports.PaymentInfo{}, fmt.Errorf("decode MP search: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		return sharedports.PaymentInfo{}, fmt.Errorf("MP %d: búsqueda de pago falló", resp.StatusCode)
+	}
+	if len(out.Results) == 0 {
+		return sharedports.PaymentInfo{}, fmt.Errorf("no se encontró ningún pago para external_reference %s", externalRef)
+	}
+
+	// Preferir un pago aprobado; si no hay, el primero (más reciente).
+	chosen := out.Results[0]
+	for _, r := range out.Results {
+		if r.Status == "approved" {
+			chosen = r
+			break
+		}
+	}
+
+	return sharedports.PaymentInfo{
+		ID:            strconv.FormatInt(chosen.ID, 10),
+		Status:        chosen.Status,
+		ExternalRef:   chosen.ExternalRef,
+		PaymentTypeID: chosen.PaymentTypeID,
+	}, nil
+}
+
 // CreateCustomer crea un Customer de Mercado Pago para poder guardarle tarjetas.
 func (p *MercadoPagoProvider) CreateCustomer(ctx context.Context, email string) (string, error) {
 	data, err := json.Marshal(mpCustomerRequest{Email: email})

@@ -110,45 +110,105 @@ func (h *WebhookHandler) MercadoPago(c *gin.Context) {
 		return
 	}
 
-	if h.paymentProvider == nil {
-		c.JSON(http.StatusOK, gin.H{"received": true})
+	h.confirmPaymentByID(c.Request.Context(), notification.Data.ID)
+	c.JSON(http.StatusOK, gin.H{"received": true})
+}
+
+// confirmPaymentByID consulta el pago en Mercado Pago y actualiza la renta (o
+// la suscripción) que le corresponde según el external_reference. Es
+// idempotente: se puede llamar tanto desde el webhook como desde el retorno
+// del navegador (back_url) sin efectos dobles, porque la fuente de verdad es
+// siempre el estado que MP reporta para ese payment_id.
+func (h *WebhookHandler) confirmPaymentByID(ctx context.Context, paymentID string) {
+	if h.paymentProvider == nil || paymentID == "" {
 		return
 	}
 
-	ctx := c.Request.Context()
-
-	info, err := h.paymentProvider.GetPaymentInfo(ctx, notification.Data.ID)
+	info, err := h.paymentProvider.GetPaymentInfo(ctx, paymentID)
 	if err != nil {
-		log.Printf("WARN: no se pudo obtener info del pago %s: %v", notification.Data.ID, err)
-		c.JSON(http.StatusOK, gin.H{"received": true})
+		log.Printf("WARN: no se pudo obtener info del pago %s: %v", paymentID, err)
 		return
 	}
 
 	if info.ExternalRef == "" {
-		c.JSON(http.StatusOK, gin.H{"received": true})
 		return
 	}
 
 	if strings.HasPrefix(info.ExternalRef, userservice.SubscriptionExternalRefPrefix) {
 		h.handleSubscriptionPayment(ctx, info)
-		c.JSON(http.StatusOK, gin.H{"received": true})
 		return
 	}
 
 	rentalID, err := uuid.Parse(info.ExternalRef)
 	if err != nil {
 		log.Printf("WARN: external_reference inválido: %s", info.ExternalRef)
-		c.JSON(http.StatusOK, gin.H{"received": true})
 		return
 	}
 
 	if err := h.rentalSvc.UpdatePaymentStatus(ctx, rentalID, info.ID, info.Status, info.PaymentTypeID); err != nil {
 		log.Printf("WARN: no se pudo actualizar payment_status de renta %s: %v", rentalID, err)
 	} else {
-		log.Printf("MP Webhook | renta %s actualizada → payment_id=%s status=%s", rentalID, info.ID, info.Status)
+		log.Printf("MP confirm | renta %s actualizada → payment_id=%s status=%s", rentalID, info.ID, info.Status)
+	}
+}
+
+// PaymentReturn atiende las back_urls de Checkout Pro (/payment/success, etc.).
+// Además de mostrar la página de "puedes cerrar esta ventana", confirma el
+// pago del lado del SERVIDOR usando el payment_id que MP agrega a la URL de
+// retorno. Esto es clave: si el checkout de MP escapó al navegador externo
+// (Safari) — porque abrió la app de MP o del banco vía deep link — el redirect
+// de éxito ya no cae en el WebView de la app y esta nunca alcanza a llamar a
+// confirm-payment. Confirmando aquí, el pago queda registrado igual, sin
+// depender del webhook ni de que la app intercepte el redirect.
+func (h *WebhookHandler) PaymentReturn(c *gin.Context) {
+	status := c.Param("status")
+
+	if status == "success" {
+		paymentID := c.Query("payment_id")
+		if paymentID == "" {
+			paymentID = c.Query("collection_id")
+		}
+		if paymentID != "" {
+			h.confirmPaymentByID(c.Request.Context(), paymentID)
+		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"received": true})
+	// Se devuelve una página HTML que rebota de vuelta a la app vía el deep
+	// link toolshare://payment/<status>. Al reabrirse, la app reconcilia el
+	// pago (onResume). Además queda un botón "Volver a la app" por si el
+	// redirect automático no dispara.
+	deepLink := "toolshare://payment/" + status
+
+	var title, msg string
+	switch status {
+	case "success":
+		title = "¡Pago confirmado!"
+		msg = "Tu pago se registró correctamente. Regresando a la app…"
+	case "pending":
+		title = "Pago pendiente"
+		msg = "Tu pago quedó pendiente de aprobación. Regresando a la app…"
+	default:
+		title = "Pago no completado"
+		msg = "El pago no se completó. Regresando a la app…"
+	}
+
+	html := `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">` +
+		`<meta name="viewport" content="width=device-width, initial-scale=1">` +
+		`<title>` + title + `</title>` +
+		`<script>function go(){window.location.href="` + deepLink + `";}` +
+		`go();setTimeout(go,700);</script>` +
+		`<style>body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0f172a;` +
+		`color:#e2e8f0;display:flex;min-height:100vh;align-items:center;justify-content:center;` +
+		`margin:0;text-align:center}.c{padding:28px;max-width:360px}` +
+		`.t{font-size:22px;font-weight:800;margin-bottom:10px}` +
+		`.m{font-size:15px;color:#94a3b8;line-height:1.5;margin-bottom:24px}` +
+		`a.btn{display:inline-block;background:#f97316;color:#fff;text-decoration:none;` +
+		`font-weight:700;padding:14px 22px;border-radius:12px}</style></head>` +
+		`<body><div class="c"><div class="t">` + title + `</div>` +
+		`<div class="m">` + msg + `</div>` +
+		`<a class="btn" href="` + deepLink + `">Volver a la app</a></div></body></html>`
+
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(html))
 }
 
 // handleSubscriptionPayment activa el plan Pro del usuario cuando MP confirma

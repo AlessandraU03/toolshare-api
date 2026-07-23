@@ -91,6 +91,13 @@ type PaymentProvider interface {
 	// GetPaymentInfo consulta el estado de un pago por su ID.
 	GetPaymentInfo(ctx context.Context, paymentID string) (PaymentInfo, error)
 
+	// SearchPaymentByExternalRef busca en Mercado Pago el pago asociado a un
+	// external_reference (el ID de la renta). Sirve para reconciliar cuando el
+	// cliente no tiene el payment_id (p. ej. el redirect de retorno del
+	// checkout nunca se interceptó). Devuelve el pago más relevante
+	// (preferentemente aprobado). Error si no hay ninguno.
+	SearchPaymentByExternalRef(ctx context.Context, externalRef, sellerAccessToken string) (PaymentInfo, error)
+
 	// CreateCustomer crea un Customer de Mercado Pago para guardar tarjetas a su nombre.
 	CreateCustomer(ctx context.Context, email string) (customerID string, err error)
 

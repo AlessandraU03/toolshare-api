@@ -67,6 +67,15 @@ func (p *MockPaymentProvider) GetPaymentInfo(_ context.Context, paymentID string
 	}, nil
 }
 
+func (p *MockPaymentProvider) SearchPaymentByExternalRef(_ context.Context, externalRef, _ string) (sharedports.PaymentInfo, error) {
+	// En modo mock se asume que el pago quedó aprobado para la renta indicada.
+	return sharedports.PaymentInfo{
+		ID:          fmt.Sprintf("MOCK_PAY_%d", time.Now().UnixMilli()),
+		Status:      "approved",
+		ExternalRef: externalRef,
+	}, nil
+}
+
 func (p *MockPaymentProvider) CreateCustomer(_ context.Context, _ string) (string, error) {
 	return fmt.Sprintf("MOCK_CUSTOMER_%d", time.Now().UnixMilli()), nil
 }
