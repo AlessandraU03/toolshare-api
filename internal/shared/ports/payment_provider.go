@@ -51,9 +51,10 @@ type CreatePreferenceOutput struct {
 
 // PaymentInfo representa la información de un pago obtenida desde MP.
 type PaymentInfo struct {
-	ID          string
-	Status      string // approved, pending, rejected, cancelled…
-	ExternalRef string // rental ID guardado como external_reference
+	ID            string
+	Status        string // approved, pending, rejected, cancelled…
+	ExternalRef   string // rental ID guardado como external_reference
+	PaymentTypeID string // credit_card, debit_card, account_money, ticket…
 }
 
 // SavedCardInfo representa una tarjeta guardada en el Customer de Mercado Pago.
@@ -78,6 +79,11 @@ type PaymentProvider interface {
 	// Cancel libera la pre-autorización y devuelve los fondos al solicitante.
 	// sellerAccessToken debe ser el mismo usado al crear el pago en Authorize.
 	Cancel(ctx context.Context, paymentID string, sellerAccessToken string) error
+
+	// Refund devuelve el dinero de un pago ya aprobado/capturado. amount=0
+	// hace un reembolso total; amount>0, uno parcial. sellerAccessToken debe
+	// ser el mismo usado al crear el pago.
+	Refund(ctx context.Context, paymentID string, amount float64, sellerAccessToken string) error
 
 	// CreatePreference crea una preferencia de Checkout Pro y devuelve el init_point.
 	CreatePreference(ctx context.Context, inp CreatePreferenceInput) (CreatePreferenceOutput, error)

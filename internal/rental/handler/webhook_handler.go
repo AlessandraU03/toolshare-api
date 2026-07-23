@@ -142,7 +142,7 @@ func (h *WebhookHandler) MercadoPago(c *gin.Context) {
 		return
 	}
 
-	if err := h.rentalSvc.UpdatePaymentStatus(ctx, rentalID, info.ID, info.Status); err != nil {
+	if err := h.rentalSvc.UpdatePaymentStatus(ctx, rentalID, info.ID, info.Status, info.PaymentTypeID); err != nil {
 		log.Printf("WARN: no se pudo actualizar payment_status de renta %s: %v", rentalID, err)
 	} else {
 		log.Printf("MP Webhook | renta %s actualizada → payment_id=%s status=%s", rentalID, info.ID, info.Status)

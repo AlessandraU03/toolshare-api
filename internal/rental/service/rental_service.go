@@ -178,8 +178,17 @@ func (s *rentalService) Create(ctx context.Context, inp rentalports.CreateRental
 		return nil, err
 	}
 
-	if err := s.toolRepo.SetAvailability(ctx, tool.ID, false); err != nil {
-		return nil, err
+	// En efectivo el bloqueo es inmediato: no hay pasarela de por medio, la
+	// reserva en sí ya compromete la herramienta. En tarjeta, el pago real
+	// ocurre después en el checkout de Mercado Pago (Checkout Pro) y se
+	// confirma vía webhook — recién ahí (UpdatePaymentStatus, status
+	// "approved") se bloquea la herramienta. Antes de eso solo es una
+	// solicitud pendiente de pago; no debe verse como "rentada" sin que se
+	// haya cobrado nada todavía.
+	if method == "cash" {
+		if err := s.toolRepo.SetAvailability(ctx, tool.ID, false); err != nil {
+			return nil, err
+		}
 	}
 
 	return created, nil
@@ -410,13 +419,52 @@ func (s *rentalService) CreatePreference(ctx context.Context, rentalID uuid.UUID
 	return out, nil
 }
 
-func (s *rentalService) UpdatePaymentStatus(ctx context.Context, rentalID uuid.UUID, paymentID, status string) error {
+func (s *rentalService) UpdatePaymentStatus(ctx context.Context, rentalID uuid.UUID, paymentID, status, paymentTypeID string) error {
 	rental, err := s.rentalRepo.FindByID(ctx, rentalID)
 	if err != nil {
 		return err
 	}
+
+	// Checkout Pro no deja excluir "account_money" (MP responde 400 si se
+	// intenta), así que un comprador puede aprobar el pago con el saldo de
+	// su cuenta MP en vez de una tarjeta real aunque la app solo ofrezca
+	// "Tarjeta". Esa combinación no es válida para este flujo: se reembolsa
+	// de inmediato y se trata como pago rechazado, para que la herramienta
+	// nunca quede marcada como rentada por dinero que no vino de una
+	// tarjeta real.
+	if status == "approved" && rental.PaymentMethod == "card" &&
+		paymentTypeID != "" && paymentTypeID != "credit_card" && paymentTypeID != "debit_card" {
+		sellerToken, tokenErr := s.sellerAccessToken(ctx, rental.OwnerID)
+		if tokenErr != nil {
+			log.Printf("WARN: no se pudo obtener token del propietario para reembolsar pago %s (payment_type_id=%s): %v", paymentID, paymentTypeID, tokenErr)
+		} else if err := s.paymentProvider.Refund(ctx, paymentID, 0, sellerToken); err != nil {
+			log.Printf("WARN: no se pudo reembolsar pago %s con payment_type_id=%s: %v", paymentID, paymentTypeID, err)
+		} else {
+			log.Printf("Pago %s reembolsado: payment_type_id=%s no es tarjeta (renta %s)", paymentID, paymentTypeID, rentalID)
+		}
+		status = "rejected"
+	}
+
 	rental.MPPaymentID = paymentID
 	rental.PaymentStatus = status
+
+	switch status {
+	case "approved":
+		// Recién aquí se confirma que el pago con tarjeta se cobró de
+		// verdad: apenas ahora se bloquea la herramienta como rentada (ver
+		// nota en Create).
+		if rental.PaymentMethod == "card" {
+			_ = s.toolRepo.SetAvailability(ctx, rental.ToolID, false)
+		}
+	case "rejected", "cancelled":
+		// El pago no se completó: si la solicitud seguía pendiente de pago,
+		// se cancela para no dejarla colgada apareciéndole al solicitante
+		// como una reserva viva que nunca se cobró.
+		if rental.Status == rentaldomain.RentalStatusPending {
+			rental.Status = rentaldomain.RentalStatusCancelled
+		}
+	}
+
 	_, err = s.rentalRepo.Update(ctx, rental)
 	if err == nil {
 		pubsub.Publish(rental.ID)

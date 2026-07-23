@@ -43,7 +43,8 @@ type RentalService interface {
 	// CreatePreference crea una preferencia de Checkout Pro en MP y devuelve el init_point.
 	CreatePreference(ctx context.Context, rentalID uuid.UUID, requesterID uuid.UUID, payerEmail string) (sharedports.CreatePreferenceOutput, error)
 	// UpdatePaymentStatus actualiza el payment_id y status de una renta (llamado desde el webhook).
-	UpdatePaymentStatus(ctx context.Context, rentalID uuid.UUID, paymentID, status string) error
+	// paymentTypeID es el payment_type_id que reportó MP (credit_card, account_money, etc.).
+	UpdatePaymentStatus(ctx context.Context, rentalID uuid.UUID, paymentID, status, paymentTypeID string) error
 
 	GetMessages(ctx context.Context, rentalID uuid.UUID, userID uuid.UUID) ([]*rentaldomain.Message, error)
 	SendMessage(ctx context.Context, inp SendMessageInput) (*rentaldomain.Message, error)

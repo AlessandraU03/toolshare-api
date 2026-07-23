@@ -90,12 +90,14 @@ type mpPaymentTypeID struct {
 }
 
 // onlyCardPaymentMethods excluye todo lo que no sea tarjeta de crédito/débito.
-// "account_money" (saldo de la cuenta de Mercado Pago) faltaba aquí: sin
-// excluirlo, Checkout Pro seguía ofreciendo pagar con el saldo de la cuenta
-// del comprador sin pedir ninguna tarjeta, aprobando el pago de verdad con
-// ese dinero aunque la UI de la app diga "Tarjeta".
+// "account_money" (saldo de la cuenta MP) no se puede meter aquí: la API de
+// Mercado Pago rechaza la preferencia entera con 400 "account_money cannot
+// be excluded" si se intenta. Por eso ese método sigue disponible en
+// Checkout Pro pase lo que pase — la validación de que el pago realmente
+// haya sido con tarjeta se hace después, al recibir el webhook (ver
+// webhook_handler.go).
 func onlyCardPaymentMethods() *mpPaymentMethods {
-	excluded := []string{"ticket", "atm", "bank_transfer", "digital_wallet", "digital_currency", "prepaid_card", "account_money"}
+	excluded := []string{"ticket", "atm", "bank_transfer", "digital_wallet", "digital_currency", "prepaid_card"}
 	types := make([]mpPaymentTypeID, len(excluded))
 	for i, t := range excluded {
 		types[i] = mpPaymentTypeID{ID: t}
@@ -124,9 +126,10 @@ type mpPreferenceResponse struct {
 }
 
 type mpPaymentDetail struct {
-	ID          int64  `json:"id"`
-	Status      string `json:"status"`
-	ExternalRef string `json:"external_reference"`
+	ID            int64  `json:"id"`
+	Status        string `json:"status"`
+	ExternalRef   string `json:"external_reference"`
+	PaymentTypeID string `json:"payment_type_id"`
 }
 
 type mpCustomerRequest struct {
@@ -189,6 +192,18 @@ func (p *MercadoPagoProvider) Capture(ctx context.Context, paymentID string, amo
 
 func (p *MercadoPagoProvider) Cancel(ctx context.Context, paymentID string, sellerAccessToken string) error {
 	return p.put(ctx, "/v1/payments/"+paymentID, mpUpdateRequest{Status: "cancelled"}, sellerAccessToken)
+}
+
+// Refund devuelve el dinero de un pago ya capturado/aprobado vía
+// POST /v1/payments/{id}/refunds. Sin "amount" en el body, MP hace un
+// reembolso total; con "amount" > 0, un reembolso parcial.
+func (p *MercadoPagoProvider) Refund(ctx context.Context, paymentID string, amount float64, sellerAccessToken string) error {
+	body := map[string]float64{}
+	if amount > 0 {
+		body["amount"] = amount
+	}
+	_, err := p.post(ctx, "/v1/payments/"+paymentID+"/refunds", body, sellerAccessToken)
+	return err
 }
 
 func (p *MercadoPagoProvider) CreatePreference(ctx context.Context, inp sharedports.CreatePreferenceInput) (sharedports.CreatePreferenceOutput, error) {
@@ -280,9 +295,10 @@ func (p *MercadoPagoProvider) GetPaymentInfo(ctx context.Context, paymentID stri
 	}
 
 	return sharedports.PaymentInfo{
-		ID:          strconv.FormatInt(detail.ID, 10),
-		Status:      detail.Status,
-		ExternalRef: detail.ExternalRef,
+		ID:            strconv.FormatInt(detail.ID, 10),
+		Status:        detail.Status,
+		ExternalRef:   detail.ExternalRef,
+		PaymentTypeID: detail.PaymentTypeID,
 	}, nil
 }
 

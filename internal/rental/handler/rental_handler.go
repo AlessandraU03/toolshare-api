@@ -494,7 +494,7 @@ func (h *RentalHandler) MockCheckout(c *gin.Context) {
 	}
 
 	mockPaymentID := "MOCK_" + strconv.FormatInt(time.Now().UnixMilli(), 10)
-	if err := h.rentalSvc.UpdatePaymentStatus(c.Request.Context(), rentalID, mockPaymentID, "approved"); err != nil {
+	if err := h.rentalSvc.UpdatePaymentStatus(c.Request.Context(), rentalID, mockPaymentID, "approved", "credit_card"); err != nil {
 		c.Data(http.StatusInternalServerError, "text/html; charset=utf-8", []byte(
 			`<html><body style="font-family:sans-serif;text-align:center;padding:40px">`+
 				`<h2>No se pudo aprobar el pago simulado</h2></body></html>`))
