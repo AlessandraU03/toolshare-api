@@ -297,17 +297,26 @@ func (s *rentalService) ConfirmReturn(ctx context.Context, rentalID uuid.UUID, u
 	return updated, nil
 }
 
-// Dispute registra que el propietario detectó daño en la herramienta devuelta.
-// Captura el depósito como penalización y bloquea el pago pendiente de arbitraje.
-func (s *rentalService) Dispute(ctx context.Context, rentalID uuid.UUID, ownerID uuid.UUID, reason string) (*rentaldomain.Rental, error) {
+// Dispute abre una disputa sobre la renta. Puede abrirla cualquiera de las
+// dos partes (propietario o solicitante):
+//   - Si la abre el PROPIETARIO (típicamente por daño en la herramienta
+//     devuelta), se captura el depósito de garantía como penalización al
+//     solicitante y se deja el pago pendiente de arbitraje del admin.
+//   - Si la abre el SOLICITANTE (típicamente porque la herramienta no sirve /
+//     no era lo ofrecido), NO se captura nada: los fondos quedan congelados
+//     tal cual y será el admin quien decida el reembolso o el cobro. Sería
+//     injusto penalizar al solicitante con su propio depósito por quejarse.
+func (s *rentalService) Dispute(ctx context.Context, rentalID uuid.UUID, userID uuid.UUID, reason string) (*rentaldomain.Rental, error) {
 	rental, err := s.rentalRepo.FindByID(ctx, rentalID)
 	if err != nil {
 		return nil, err
 	}
 
-	if rental.OwnerID != ownerID {
+	if rental.OwnerID != userID && rental.RequesterID != userID {
 		return nil, ErrUnauthorized
 	}
+
+	openedByOwner := rental.OwnerID == userID
 
 	if err := rental.Dispute(reason); err != nil {
 		return nil, err
@@ -319,8 +328,10 @@ func (s *rentalService) Dispute(ctx context.Context, rentalID uuid.UUID, ownerID
 	}
 	pubsub.Publish(rental.ID)
 
-	// Capturar el depósito como penalización al solicitante
-	if s.paymentProvider != nil && updated.MPPaymentID != "" {
+	// Solo el propietario que reporta daño captura el depósito de inmediato.
+	// Si la disputa la abrió el solicitante, no se cobra nada aquí: el admin
+	// arbitra después (capture => cobra depósito, refund => reembolsa).
+	if openedByOwner && s.paymentProvider != nil && updated.MPPaymentID != "" {
 		sellerToken, tokenErr := s.sellerAccessToken(ctx, updated.OwnerID)
 		if tokenErr != nil {
 			log.Printf("WARN: no se pudo obtener token del propietario para capturar depósito %s: %v", updated.MPPaymentID, tokenErr)

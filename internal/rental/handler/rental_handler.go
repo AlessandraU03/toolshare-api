@@ -265,9 +265,9 @@ func (h *RentalHandler) Dispute(c *gin.Context) {
 		return
 	}
 
-	ownerID := sharedmiddleware.UserIDFromContext(c)
+	userID := sharedmiddleware.UserIDFromContext(c)
 
-	rental, err := h.rentalSvc.Dispute(c.Request.Context(), id, ownerID, req.Reason)
+	rental, err := h.rentalSvc.Dispute(c.Request.Context(), id, userID, req.Reason)
 	if err != nil {
 		switch {
 		case errors.Is(err, rentalservice.ErrUnauthorized):
