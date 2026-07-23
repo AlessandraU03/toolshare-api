@@ -90,8 +90,12 @@ type mpPaymentTypeID struct {
 }
 
 // onlyCardPaymentMethods excluye todo lo que no sea tarjeta de crédito/débito.
+// "account_money" (saldo de la cuenta de Mercado Pago) faltaba aquí: sin
+// excluirlo, Checkout Pro seguía ofreciendo pagar con el saldo de la cuenta
+// del comprador sin pedir ninguna tarjeta, aprobando el pago de verdad con
+// ese dinero aunque la UI de la app diga "Tarjeta".
 func onlyCardPaymentMethods() *mpPaymentMethods {
-	excluded := []string{"ticket", "atm", "bank_transfer", "digital_wallet", "digital_currency", "prepaid_card"}
+	excluded := []string{"ticket", "atm", "bank_transfer", "digital_wallet", "digital_currency", "prepaid_card", "account_money"}
 	types := make([]mpPaymentTypeID, len(excluded))
 	for i, t := range excluded {
 		types[i] = mpPaymentTypeID{ID: t}
