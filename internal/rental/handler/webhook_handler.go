@@ -173,10 +173,42 @@ func (h *WebhookHandler) PaymentReturn(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"status":  status,
-		"message": "Puedes cerrar esta ventana y volver a la app.",
-	})
+	// Se devuelve una página HTML que rebota de vuelta a la app vía el deep
+	// link toolshare://payment/<status>. Al reabrirse, la app reconcilia el
+	// pago (onResume). Además queda un botón "Volver a la app" por si el
+	// redirect automático no dispara.
+	deepLink := "toolshare://payment/" + status
+
+	var title, msg string
+	switch status {
+	case "success":
+		title = "¡Pago confirmado!"
+		msg = "Tu pago se registró correctamente. Regresando a la app…"
+	case "pending":
+		title = "Pago pendiente"
+		msg = "Tu pago quedó pendiente de aprobación. Regresando a la app…"
+	default:
+		title = "Pago no completado"
+		msg = "El pago no se completó. Regresando a la app…"
+	}
+
+	html := `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">` +
+		`<meta name="viewport" content="width=device-width, initial-scale=1">` +
+		`<title>` + title + `</title>` +
+		`<script>function go(){window.location.href="` + deepLink + `";}` +
+		`go();setTimeout(go,700);</script>` +
+		`<style>body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0f172a;` +
+		`color:#e2e8f0;display:flex;min-height:100vh;align-items:center;justify-content:center;` +
+		`margin:0;text-align:center}.c{padding:28px;max-width:360px}` +
+		`.t{font-size:22px;font-weight:800;margin-bottom:10px}` +
+		`.m{font-size:15px;color:#94a3b8;line-height:1.5;margin-bottom:24px}` +
+		`a.btn{display:inline-block;background:#f97316;color:#fff;text-decoration:none;` +
+		`font-weight:700;padding:14px 22px;border-radius:12px}</style></head>` +
+		`<body><div class="c"><div class="t">` + title + `</div>` +
+		`<div class="m">` + msg + `</div>` +
+		`<a class="btn" href="` + deepLink + `">Volver a la app</a></div></body></html>`
+
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(html))
 }
 
 // handleSubscriptionPayment activa el plan Pro del usuario cuando MP confirma
