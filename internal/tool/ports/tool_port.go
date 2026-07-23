@@ -96,6 +96,10 @@ type ToolService interface {
 	CreateInsurancePreference(ctx context.Context, toolID uuid.UUID, ownerID uuid.UUID) (sharedports.CreatePreferenceOutput, error)
 	// ConfirmInsurancePayment verifica el pago directamente con MP y activa el seguro.
 	ConfirmInsurancePayment(ctx context.Context, toolID uuid.UUID, ownerID uuid.UUID, paymentID string) (*tooldomain.Tool, error)
+	// ReconcileInsurance activa el seguro SIN payment_id, buscándolo en MP por
+	// external_reference. Respaldo para cuando el redirect del checkout nunca
+	// se interceptó (terminó en el navegador externo).
+	ReconcileInsurance(ctx context.Context, toolID uuid.UUID, ownerID uuid.UUID) (*tooldomain.Tool, error)
 	// CancelInsurance desactiva el seguro; no genera reembolso de la prima ya pagada.
 	CancelInsurance(ctx context.Context, toolID uuid.UUID, ownerID uuid.UUID) (*tooldomain.Tool, error)
 }

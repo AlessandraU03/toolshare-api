@@ -107,6 +107,7 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string,
 			owner.GET("/tools/auto-valuate", h.Tool.AutoValuate)
 			owner.POST("/tools/:id/insurance/preference", h.Tool.CreateInsurancePreference)
 			owner.POST("/tools/:id/insurance/confirm", h.Tool.ConfirmInsurancePayment)
+			owner.POST("/tools/:id/insurance/reconcile", h.Tool.ReconcileInsurance)
 			owner.POST("/tools/:id/insurance/cancel", h.Tool.CancelInsurance)
 		}
 

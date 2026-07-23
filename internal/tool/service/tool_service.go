@@ -299,6 +299,41 @@ func (s *toolService) ConfirmInsurancePayment(ctx context.Context, toolID uuid.U
 	return s.toolRepo.Update(ctx, tool)
 }
 
+// ReconcileInsurance activa el seguro SIN necesitar el payment_id: busca el
+// pago en Mercado Pago por external_reference ("ins:<toolID>"). Es el respaldo
+// para cuando el checkout del seguro terminó en el navegador y la app nunca
+// interceptó el redirect. El seguro se cobra a la cuenta de la plataforma
+// (sin split), así que se busca con el token por defecto. Idempotente.
+func (s *toolService) ReconcileInsurance(ctx context.Context, toolID uuid.UUID, ownerID uuid.UUID) (*tooldomain.Tool, error) {
+	tool, err := s.toolRepo.FindByID(ctx, toolID)
+	if err != nil {
+		return nil, err
+	}
+	if tool.OwnerID != ownerID {
+		return nil, apperrors.ErrForbidden
+	}
+	if tool.WantsInsurance {
+		return tool, nil // ya está activo
+	}
+	if s.paymentProvider == nil {
+		return nil, fmt.Errorf("%w: pasarela de pagos no configurada", ErrInsurancePayment)
+	}
+
+	info, err := s.paymentProvider.SearchPaymentByExternalRef(ctx, InsuranceExternalRefPrefix+toolID.String(), "")
+	if err != nil {
+		// Aún no hay pago aprobado: se devuelve la herramienta tal cual (sin
+		// seguro), no es error fatal para el cliente.
+		return tool, nil
+	}
+	if info.ExternalRef != InsuranceExternalRefPrefix+toolID.String() || info.Status != "approved" {
+		return tool, nil
+	}
+
+	tool.WantsInsurance = true
+	tool.InsuranceMonthlyPremium = tool.CalculateInsurancePremium()
+	return s.toolRepo.Update(ctx, tool)
+}
+
 // CancelInsurance desactiva el seguro de la herramienta. No hay reembolso: la
 // prima ya pagada cubre el mes en curso, la cobertura simplemente no se
 // renueva en el siguiente ciclo.
