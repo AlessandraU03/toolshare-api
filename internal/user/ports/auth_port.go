@@ -62,4 +62,11 @@ type AuthService interface {
 
 	// GetMPConnectStatus indica si el usuario ya vinculó su cuenta MP.
 	GetMPConnectStatus(ctx context.Context, userID uuid.UUID) (connected bool, err error)
+
+	// ── Datos bancarios (pago manual de disputas con seguro) ──
+
+	// SaveBankAccount guarda/actualiza los datos bancarios del propietario.
+	SaveBankAccount(ctx context.Context, userID uuid.UUID, account userdomain.BankAccount) error
+	// GetBankAccount devuelve los datos bancarios registrados del propietario.
+	GetBankAccount(ctx context.Context, userID uuid.UUID) (*userdomain.BankAccount, error)
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	apperrors "github.com/yourusername/tool-inventory-api/internal/shared/errors"
 	sharedmiddleware "github.com/yourusername/tool-inventory-api/internal/shared/middleware"
+	userdomain "github.com/yourusername/tool-inventory-api/internal/user/domain"
 	userports "github.com/yourusername/tool-inventory-api/internal/user/ports"
 	userservice "github.com/yourusername/tool-inventory-api/internal/user/service"
 )
@@ -186,6 +187,62 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, ToUserResponse(user))
+}
+
+// SaveBankAccount godoc
+// @Summary      Guardar datos bancarios
+// @Description  Guarda la CLABE, titular y banco del propietario. Se usan para que el administrador le transfiera manualmente el pago de una disputa ganada con seguro activo (Mercado Pago no ofrece una API de transferencia directa con esta integración)
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        body body BankAccountRequest true "Datos bancarios"
+// @Success      200 {object} BankAccountResponse
+// @Failure      400 {object} dto.ErrResponse
+// @Failure      401 {object} dto.ErrResponse
+// @Router       /auth/bank-account [put]
+func (h *AuthHandler) SaveBankAccount(c *gin.Context) {
+	var req BankAccountRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID := sharedmiddleware.UserIDFromContext(c)
+	account := userdomain.BankAccount{
+		CLABE:         req.CLABE,
+		AccountHolder: req.AccountHolder,
+		BankName:      req.BankName,
+	}
+	if err := h.authSvc.SaveBankAccount(c.Request.Context(), userID, account); err != nil {
+		if errors.Is(err, userservice.ErrInvalidCLABE) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "error interno del servidor"})
+		return
+	}
+
+	c.JSON(http.StatusOK, ToBankAccountResponse(&account))
+}
+
+// GetBankAccount godoc
+// @Summary      Consultar datos bancarios
+// @Description  Devuelve los datos bancarios registrados del usuario autenticado
+// @Tags         auth
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200 {object} BankAccountResponse
+// @Failure      401 {object} dto.ErrResponse
+// @Router       /auth/bank-account [get]
+func (h *AuthHandler) GetBankAccount(c *gin.Context) {
+	userID := sharedmiddleware.UserIDFromContext(c)
+	account, err := h.authSvc.GetBankAccount(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "error interno del servidor"})
+		return
+	}
+	c.JSON(http.StatusOK, ToBankAccountResponse(account))
 }
 
 // AddCard godoc

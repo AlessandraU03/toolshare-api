@@ -85,6 +85,31 @@ func ToSavedCardListResponse(cards []*userdomain.SavedCard) []SavedCardResponse 
 	return resp
 }
 
+type BankAccountRequest struct {
+	CLABE         string `json:"clabe"          binding:"required,len=18,numeric" example:"012345678901234567"`
+	AccountHolder string `json:"account_holder" binding:"required,min=2,max=255"  example:"María López"`
+	BankName      string `json:"bank_name"      binding:"required,min=2,max=100"  example:"BBVA"`
+}
+
+type BankAccountResponse struct {
+	CLABE         string `json:"clabe"`
+	AccountHolder string `json:"account_holder"`
+	BankName      string `json:"bank_name"`
+	Registered    bool   `json:"registered"`
+}
+
+func ToBankAccountResponse(a *userdomain.BankAccount) BankAccountResponse {
+	if a == nil {
+		return BankAccountResponse{}
+	}
+	return BankAccountResponse{
+		CLABE:         a.CLABE,
+		AccountHolder: a.AccountHolder,
+		BankName:      a.BankName,
+		Registered:    a.HasBankAccount(),
+	}
+}
+
 func ToUserResponse(u *userdomain.User) UserResponse {
 	return UserResponse{
 		ID:        u.ID.String(),

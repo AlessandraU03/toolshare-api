@@ -80,6 +80,5 @@ func (h *AdminHandler) ResolveDispute(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, ToRentalResponse(resolved))
+	c.JSON(http.StatusOK, ToResolveDisputeResponse(resolved))
 }
-

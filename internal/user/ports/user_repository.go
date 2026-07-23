@@ -27,4 +27,10 @@ type UserRepository interface {
 	SaveCard(ctx context.Context, card *userdomain.SavedCard) (*userdomain.SavedCard, error)
 	ListCards(ctx context.Context, userID uuid.UUID) ([]*userdomain.SavedCard, error)
 	DeleteCard(ctx context.Context, userID uuid.UUID, cardID uuid.UUID) (mpCardID string, err error)
+
+	// GetBankAccount devuelve los datos bancarios que el propietario registró
+	// para recibir pagos manuales de disputas ganadas con seguro activo.
+	GetBankAccount(ctx context.Context, id uuid.UUID) (*userdomain.BankAccount, error)
+	// SaveBankAccount guarda/actualiza esos datos bancarios.
+	SaveBankAccount(ctx context.Context, id uuid.UUID, account userdomain.BankAccount) error
 }

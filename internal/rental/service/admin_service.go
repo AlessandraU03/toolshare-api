@@ -57,7 +57,7 @@ func (s *adminService) ListRentals(ctx context.Context, status string) ([]*renta
 	return s.rentalRepo.FindAll(ctx, status)
 }
 
-func (s *adminService) ResolveDispute(ctx context.Context, inp rentalports.ResolveDisputeInput) (*rentaldomain.Rental, error) {
+func (s *adminService) ResolveDispute(ctx context.Context, inp rentalports.ResolveDisputeInput) (*rentalports.ResolveDisputeOutput, error) {
 	rental, err := s.rentalRepo.FindByID(ctx, inp.RentalID)
 	if err != nil {
 		return nil, err
@@ -99,5 +99,29 @@ func (s *adminService) ResolveDispute(ctx context.Context, inp rentalports.Resol
 		}
 	}
 
-	return updated, nil
+	out := &rentalports.ResolveDisputeOutput{Rental: updated}
+
+	// Si el propietario ganó la disputa y la herramienta tiene el seguro
+	// ToolShare activo, el seguro le cubre un 30% adicional del valor
+	// estimado. No hay forma de transferirlo automático vía Mercado Pago
+	// (ver nota en ResolveDisputeOutput), así que se le devuelven al
+	// administrador el monto y los datos bancarios del propietario para que
+	// haga la transferencia manual.
+	if inp.Action == "capture" {
+		tool, toolErr := s.toolRepo.FindByID(ctx, updated.ToolID)
+		if toolErr != nil {
+			log.Printf("WARN [Admin]: no se pudo consultar herramienta %s para calcular seguro: %v", updated.ToolID, toolErr)
+		} else if claim := tool.CalculateInsuranceClaim(); claim > 0 {
+			bankAccount, bankErr := s.userRepo.GetBankAccount(ctx, updated.OwnerID)
+			if bankErr != nil {
+				log.Printf("WARN [Admin]: no se pudo consultar datos bancarios del propietario %s: %v", updated.OwnerID, bankErr)
+			}
+			out.InsuranceClaim = &rentalports.InsuranceClaimOutput{
+				Amount:      claim,
+				BankAccount: bankAccount,
+			}
+		}
+	}
+
+	return out, nil
 }

@@ -28,6 +28,7 @@ var (
 	ErrPaymentNotApproved = errors.New("el pago aún no está aprobado")
 	ErrPaymentRefMismatch = errors.New("el pago no corresponde a este usuario")
 	ErrCardFailed         = errors.New("no se pudo guardar la tarjeta")
+	ErrInvalidCLABE       = errors.New("la CLABE debe tener 18 dígitos")
 )
 
 // SubscriptionExternalRefPrefix marca las external_reference de MP que corresponden
@@ -162,6 +163,29 @@ func (s *authService) CreateSubscriptionPreference(ctx context.Context, userID u
 
 func (s *authService) GetProfile(ctx context.Context, userID uuid.UUID) (*userdomain.User, error) {
 	return s.userRepo.FindByID(ctx, userID)
+}
+
+// SaveBankAccount guarda los datos bancarios que usará el administrador para
+// transferirle manualmente al propietario el pago de una disputa ganada con
+// seguro activo (ver AdminService.ResolveDispute).
+func (s *authService) SaveBankAccount(ctx context.Context, userID uuid.UUID, account userdomain.BankAccount) error {
+	clabe := strings.TrimSpace(account.CLABE)
+	if len(clabe) != 18 {
+		return ErrInvalidCLABE
+	}
+	for _, r := range clabe {
+		if r < '0' || r > '9' {
+			return ErrInvalidCLABE
+		}
+	}
+	account.CLABE = clabe
+	account.AccountHolder = strings.TrimSpace(account.AccountHolder)
+	account.BankName = strings.TrimSpace(account.BankName)
+	return s.userRepo.SaveBankAccount(ctx, userID, account)
+}
+
+func (s *authService) GetBankAccount(ctx context.Context, userID uuid.UUID) (*userdomain.BankAccount, error) {
+	return s.userRepo.GetBankAccount(ctx, userID)
 }
 
 // ConfirmSubscriptionPayment consulta directamente a MP el estado de un pago (sin depender

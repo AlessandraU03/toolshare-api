@@ -84,6 +84,8 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string,
 	protected.Use(sharedmiddleware.RequireAuth(tokenProvider))
 	{
 		protected.GET("/auth/me", h.Auth.Me)
+		protected.GET("/auth/bank-account", h.Auth.GetBankAccount)
+		protected.PUT("/auth/bank-account", h.Auth.SaveBankAccount)
 		protected.POST("/auth/subscribe/preference", h.Auth.SubscribePreference)
 		protected.POST("/auth/subscribe/confirm", h.Auth.ConfirmSubscription)
 		protected.POST("/auth/cards", h.Auth.AddCard)

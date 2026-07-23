@@ -34,6 +34,21 @@ type Tool struct {
 // porcentaje del valor estimado de la herramienta.
 const InsuranceMonthlyRate = 0.05
 
+// InsuranceClaimRate es lo que cubre el seguro al propietario cuando gana
+// una disputa (herramienta dañada) con el seguro activo: 30% del valor
+// estimado. Se paga aparte del depósito de garantía capturado al
+// solicitante — ver AdminService.ResolveDispute.
+const InsuranceClaimRate = 0.30
+
+// CalculateInsuranceClaim calcula lo que cubre el seguro si el propietario
+// ganó una disputa; 0 si no tiene el seguro activo.
+func (t *Tool) CalculateInsuranceClaim() float64 {
+	if !t.WantsInsurance {
+		return 0
+	}
+	return t.EstimatedValue * InsuranceClaimRate
+}
+
 // SuggestedDailyRate calcula la tarifa mínima sugerida:
 // recuperar el 50% del valor estimado en 30 días de renta.
 func (t *Tool) SuggestedDailyRate() float64 {

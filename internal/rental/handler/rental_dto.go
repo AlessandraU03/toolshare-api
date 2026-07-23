@@ -1,8 +1,10 @@
 package rentalhandler
 
 import (
-	rentaldomain "github.com/yourusername/tool-inventory-api/internal/rental/domain"
 	"time"
+
+	rentaldomain "github.com/yourusername/tool-inventory-api/internal/rental/domain"
+	rentalports "github.com/yourusername/tool-inventory-api/internal/rental/ports"
 )
 
 // ── Request ───────────────────────────────────────────────────────────────────
@@ -115,6 +117,38 @@ func ToRentalListResponse(rentals []*rentaldomain.Rental) []RentalResponse {
 
 type CreatePreferenceRequest struct {
 	PayerEmail string `json:"payer_email"`
+}
+
+// InsuranceClaimResponse indica cuánto le debe el seguro de ToolShare al
+// propietario tras ganar una disputa, y sus datos bancarios registrados
+// para que el administrador transfiera manualmente ese monto.
+type InsuranceClaimResponse struct {
+	Amount                float64 `json:"amount"`
+	BankCLABE             string  `json:"bank_clabe"`
+	BankAccountHolder     string  `json:"bank_account_holder"`
+	BankName              string  `json:"bank_name"`
+	BankAccountRegistered bool    `json:"bank_account_registered"`
+}
+
+type ResolveDisputeResponse struct {
+	Rental         RentalResponse          `json:"rental"`
+	InsuranceClaim *InsuranceClaimResponse `json:"insurance_claim,omitempty"`
+}
+
+func ToResolveDisputeResponse(out *rentalports.ResolveDisputeOutput) ResolveDisputeResponse {
+	resp := ResolveDisputeResponse{Rental: ToRentalResponse(out.Rental)}
+	if out.InsuranceClaim == nil {
+		return resp
+	}
+	claim := &InsuranceClaimResponse{Amount: out.InsuranceClaim.Amount}
+	if acc := out.InsuranceClaim.BankAccount; acc != nil {
+		claim.BankCLABE = acc.CLABE
+		claim.BankAccountHolder = acc.AccountHolder
+		claim.BankName = acc.BankName
+		claim.BankAccountRegistered = acc.HasBankAccount()
+	}
+	resp.InsuranceClaim = claim
+	return resp
 }
 
 type ConfirmPaymentRequest struct {

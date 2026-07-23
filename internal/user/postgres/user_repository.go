@@ -151,6 +151,48 @@ func (r *UserRepository) SetMPSellerAccount(ctx context.Context, id uuid.UUID, s
 	return nil
 }
 
+// GetBankAccount devuelve los datos bancarios que el propietario registró
+// para recibir pagos manuales de disputas ganadas con seguro activo.
+func (r *UserRepository) GetBankAccount(ctx context.Context, id uuid.UUID) (*userdomain.BankAccount, error) {
+	var clabe, holder, bank *string
+	err := r.db.QueryRow(ctx,
+		`SELECT bank_clabe, bank_account_holder, bank_name FROM users WHERE id = $1`, id).
+		Scan(&clabe, &holder, &bank)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, apperrors.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("consultar datos bancarios: %w", err)
+	}
+
+	account := &userdomain.BankAccount{}
+	if clabe != nil {
+		account.CLABE = *clabe
+	}
+	if holder != nil {
+		account.AccountHolder = *holder
+	}
+	if bank != nil {
+		account.BankName = *bank
+	}
+	return account, nil
+}
+
+// SaveBankAccount guarda (o actualiza) los datos bancarios del propietario.
+func (r *UserRepository) SaveBankAccount(ctx context.Context, id uuid.UUID, account userdomain.BankAccount) error {
+	tag, err := r.db.Exec(ctx,
+		`UPDATE users SET bank_clabe = $1, bank_account_holder = $2, bank_name = $3, updated_at = now()
+		 WHERE id = $4`,
+		account.CLABE, account.AccountHolder, account.BankName, id)
+	if err != nil {
+		return fmt.Errorf("guardar datos bancarios: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
 func (r *UserRepository) SaveCard(ctx context.Context, card *userdomain.SavedCard) (*userdomain.SavedCard, error) {
 	query := `
 		INSERT INTO saved_cards (user_id, mp_card_id, card_brand, last_four_digits, expiration_month, expiration_year)
