@@ -56,7 +56,7 @@ func (s *ticketJobStore) start(svc *toolService, filename string, content []byte
 	s.mu.Unlock()
 
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		defer cancel()
 		out, err := svc.ExtractTicketPrice(ctx, filename, bytes.NewReader(content), contentType)
 

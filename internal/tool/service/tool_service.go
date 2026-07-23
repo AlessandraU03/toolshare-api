@@ -618,13 +618,12 @@ func (s *toolService) ExtractTicketPrice(ctx context.Context, filename string, c
 
 	req.Header.Set("Content-Type", bodyWriter.FormDataContentType())
 
-	// 60s, no 8s: igual que PredictCondition (30s) y VerifyKyc (90s), este
-	// endpoint depende del worker aislado de PaddleOCR, cuyo arranque en
-	// frio puede tardar mas de 8s. Con el timeout corto, Python terminaba
-	// de procesar bien (200 OK en su log) pero Go ya se habia rendido antes
-	// de que le llegara la respuesta -- el usuario veia "no se pudo leer el
-	// ticket" aunque el ticket si se hubiera leido correctamente.
-	client := &http.Client{Timeout: 60 * time.Second}
+	// 90s con 30s de colchon respecto al contexto de 120s del job asincrono
+	// (ticket_job_store.go), misma proporcion que VerifyKyc (90s/120s).
+	// Antes este cliente tenia 60s mientras el contexto del job ya daba
+	// 90s -- el cliente se rendia primero con "Client.Timeout exceeded
+	// while awaiting headers" aunque el job en teoria tenia mas margen.
+	client := &http.Client{Timeout: 90 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("ejecutar request a ML: %w", err)
