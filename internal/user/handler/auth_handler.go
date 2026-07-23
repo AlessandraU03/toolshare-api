@@ -2,6 +2,7 @@ package userhandler
 
 import (
 	"errors"
+	"io"
 	"log"
 	"net/http"
 
@@ -274,7 +275,13 @@ func (h *AuthHandler) DeleteCard(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "tarjeta eliminada correctamente"})
 }
 
-// VerifyKyc maneja la verificación de identidad mediante carga de archivos (INE y Selfie)
+// VerifyKyc maneja la verificación de identidad mediante carga de archivos
+// (INE y Selfie). Asíncrono a propósito: puede tardar 15-20+ segundos (Haar
+// Cascade + arranque en frío del worker de PaddleOCR + ArcFace), y una sola
+// petición HTTP tan larga corre el riesgo de que algún proxy intermedio la
+// corte a medias aunque el servidor sí termine bien (confirmado en
+// producción). Responde de inmediato con un job_id; ver GetKycJob para el
+// resultado.
 func (h *AuthHandler) VerifyKyc(c *gin.Context) {
 	ineFile, ineHeader, err := c.Request.FormFile("ine_image")
 	if err != nil {
@@ -292,13 +299,45 @@ func (h *AuthHandler) VerifyKyc(c *gin.Context) {
 
 	curp := c.PostForm("curp")
 
-	res, err := h.authSvc.VerifyKyc(c.Request.Context(), ineHeader.Filename, ineFile, selfieHeader.Filename, selfieFile, curp)
+	ineBytes, err := io.ReadAll(ineFile)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no se pudo leer la foto del INE"})
+		return
+	}
+	selfieBytes, err := io.ReadAll(selfieFile)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no se pudo leer la foto selfie"})
 		return
 	}
 
-	c.JSON(http.StatusOK, res)
+	jobID := h.authSvc.StartKycJob(ineHeader.Filename, ineBytes, selfieHeader.Filename, selfieBytes, curp)
+	c.JSON(http.StatusAccepted, gin.H{"job_id": jobID})
+}
+
+// GetKycJob consulta el resultado de una verificación KYC iniciada con
+// VerifyKyc. El cliente pregunta cada pocos segundos hasta que status ya
+// no sea "processing".
+func (h *AuthHandler) GetKycJob(c *gin.Context) {
+	jobID := c.Param("job_id")
+
+	status, result, errMsg, found := h.authSvc.GetKycJob(jobID)
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "job no encontrado o expirado"})
+		return
+	}
+
+	resp := gin.H{"status": status}
+	if errMsg != "" {
+		resp["error"] = errMsg
+	}
+	if status == "done" {
+		if resultMap, ok := result.(map[string]interface{}); ok {
+			for k, v := range resultMap {
+				resp[k] = v
+			}
+		}
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // StartMPConnect godoc

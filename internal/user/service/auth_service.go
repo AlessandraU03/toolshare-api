@@ -43,10 +43,27 @@ type authService struct {
 	userRepo        userports.UserRepository
 	tokenProvider   sharedports.TokenProvider
 	paymentProvider sharedports.PaymentProvider
+	kycJobs         *kycJobStore
 }
 
 func NewAuthService(userRepo userports.UserRepository, tokenProvider sharedports.TokenProvider, paymentProvider sharedports.PaymentProvider) userports.AuthService {
-	return &authService{userRepo: userRepo, tokenProvider: tokenProvider, paymentProvider: paymentProvider}
+	return &authService{userRepo: userRepo, tokenProvider: tokenProvider, paymentProvider: paymentProvider, kycJobs: newKycJobStore()}
+}
+
+// StartKycJob recibe los bytes de INE y selfie ya leidos y arranca la
+// verificacion KYC de fondo, devolviendo un job_id de inmediato en vez de
+// bloquear la peticion HTTP (ver kyc_job_store.go).
+func (s *authService) StartKycJob(ineFilename string, ineContent []byte, selfieFilename string, selfieContent []byte, curp string) string {
+	return s.kycJobs.start(s, ineFilename, ineContent, selfieFilename, selfieContent, curp)
+}
+
+// GetKycJob consulta el estatus de un job de KYC ya arrancado con StartKycJob.
+func (s *authService) GetKycJob(jobID string) (status string, result interface{}, errMsg string, found bool) {
+	job, ok := s.kycJobs.get(jobID)
+	if !ok {
+		return "", nil, "", false
+	}
+	return string(job.Status), job.Result, job.Error, true
 }
 
 func (s *authService) Register(ctx context.Context, inp userports.RegisterInput) (*userports.AuthOutput, error) {

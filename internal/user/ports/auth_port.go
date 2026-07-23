@@ -39,6 +39,11 @@ type AuthService interface {
 
 	// VerifyKyc se encarga de procesar los archivos de identificación oficial y selfie del usuario
 	VerifyKyc(ctx context.Context, ineFilename string, ine io.Reader, selfieFilename string, selfie io.Reader, curp string) (interface{}, error)
+	// StartKycJob / GetKycJob: versión asíncrona de VerifyKyc para evitar que
+	// una petición HTTP se quede abierta tanto tiempo que algún proxy
+	// intermedio la corte a medias (ver kyc_job_store.go).
+	StartKycJob(ineFilename string, ineContent []byte, selfieFilename string, selfieContent []byte, curp string) string
+	GetKycJob(jobID string) (status string, result interface{}, errMsg string, found bool)
 
 	// AddCard tokeniza (ya hecho en el cliente) y guarda una tarjeta en el Customer de MP del usuario.
 	AddCard(ctx context.Context, userID uuid.UUID, cardToken string) (*userdomain.SavedCard, error)

@@ -59,6 +59,7 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string,
 		auth.POST("/register", h.Auth.Register)
 		auth.POST("/login", h.Auth.Login)
 		auth.POST("/verify-kyc", h.Auth.VerifyKyc)
+		auth.GET("/verify-kyc/:job_id", h.Auth.GetKycJob)
 		// Callback de OAuth de Mercado Pago: lo invoca MP redirigiendo el
 		// navegador del propietario, sin header de autenticación.
 		auth.GET("/mp-connect/callback", h.Auth.MPConnectCallback)
