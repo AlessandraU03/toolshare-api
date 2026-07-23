@@ -45,6 +45,11 @@ type RentalService interface {
 	// UpdatePaymentStatus actualiza el payment_id y status de una renta (llamado desde el webhook).
 	// paymentTypeID es el payment_type_id que reportó MP (credit_card, account_money, etc.).
 	UpdatePaymentStatus(ctx context.Context, rentalID uuid.UUID, paymentID, status, paymentTypeID string) error
+	// ConfirmPayment lo llama el frontend justo cuando Mercado Pago lo
+	// redirige a la URL de éxito, como respaldo del webhook (que puede
+	// tardar o no llegar). Nunca confía en el estado que diga el cliente:
+	// vuelve a consultar el pago directo con MP antes de actualizar nada.
+	ConfirmPayment(ctx context.Context, rentalID uuid.UUID, requesterID uuid.UUID, paymentID string) (*rentaldomain.Rental, error)
 
 	GetMessages(ctx context.Context, rentalID uuid.UUID, userID uuid.UUID) ([]*rentaldomain.Message, error)
 	SendMessage(ctx context.Context, inp SendMessageInput) (*rentaldomain.Message, error)

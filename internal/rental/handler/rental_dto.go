@@ -117,6 +117,10 @@ type CreatePreferenceRequest struct {
 	PayerEmail string `json:"payer_email"`
 }
 
+type ConfirmPaymentRequest struct {
+	PaymentID string `json:"payment_id" binding:"required"`
+}
+
 type PreferenceResponse struct {
 	InitPoint    string `json:"init_point"`
 	PreferenceID string `json:"preference_id"`

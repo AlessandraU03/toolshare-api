@@ -365,6 +365,50 @@ func (h *RentalHandler) CreatePreference(c *gin.Context) {
 	})
 }
 
+// ConfirmPayment godoc
+// @Summary      Confirmar pago tras volver del checkout (respaldo del webhook)
+// @Description  El frontend lo llama cuando Mercado Pago lo redirige a la URL de éxito. Vuelve a consultar el pago directo con MP antes de actualizar la renta — no confía en el estado que reporte el cliente.
+// @Tags         rentas
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path string                 true "UUID de la renta"
+// @Param        body body ConfirmPaymentRequest  true "payment_id devuelto por MP en la URL de retorno"
+// @Success      200 {object} RentalResponse
+// @Failure      401 {object} dto.ErrResponse
+// @Failure      403 {object} dto.ErrResponse
+// @Failure      422 {object} dto.ErrResponse "El pago no pudo verificarse"
+// @Router       /rentals/{id}/confirm-payment [post]
+func (h *RentalHandler) ConfirmPayment(c *gin.Context) {
+	id, err := shared.ParseUUID(c, "id")
+	if err != nil {
+		return
+	}
+
+	var req ConfirmPaymentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	requesterID := sharedmiddleware.UserIDFromContext(c)
+
+	rental, err := h.rentalSvc.ConfirmPayment(c.Request.Context(), id, requesterID, req.PaymentID)
+	if err != nil {
+		switch {
+		case errors.Is(err, rentalservice.ErrUnauthorized):
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		case errors.Is(err, rentalservice.ErrPaymentFailed):
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		default:
+			shared.HandleServiceErr(c, err)
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, ToRentalResponse(rental))
+}
+
 func (h *RentalHandler) GetMessages(c *gin.Context) {
 	id, err := shared.ParseUUID(c, "id")
 	if err != nil {

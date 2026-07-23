@@ -472,6 +472,40 @@ func (s *rentalService) UpdatePaymentStatus(ctx context.Context, rentalID uuid.U
 	return err
 }
 
+// ConfirmPayment es el respaldo del webhook: lo llama el frontend en cuanto
+// Mercado Pago lo redirige a la URL de éxito del checkout. Nunca confía en
+// que "ya pasó por la pasarela" signifique que se pagó — vuelve a consultar
+// el pago directo con la API de MP (misma fuente de verdad que usa el
+// webhook) antes de tocar el estado de la renta o la herramienta.
+func (s *rentalService) ConfirmPayment(ctx context.Context, rentalID uuid.UUID, requesterID uuid.UUID, paymentID string) (*rentaldomain.Rental, error) {
+	rental, err := s.rentalRepo.FindByID(ctx, rentalID)
+	if err != nil {
+		return nil, err
+	}
+	if rental.RequesterID != requesterID {
+		return nil, ErrUnauthorized
+	}
+	if s.paymentProvider == nil {
+		return nil, fmt.Errorf("%w: pasarela de pagos no configurada", ErrPaymentFailed)
+	}
+
+	info, err := s.paymentProvider.GetPaymentInfo(ctx, paymentID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrPaymentFailed, err)
+	}
+	// El payment_id lo manda el cliente (viene de la URL de retorno de MP);
+	// se valida contra la renta a la que dice pertenecer antes de aceptarlo,
+	// para que no se pueda confirmar una renta ajena con el ID de otro pago.
+	if info.ExternalRef != rentalID.String() {
+		return nil, fmt.Errorf("%w: el pago no corresponde a esta renta", ErrPaymentFailed)
+	}
+
+	if err := s.UpdatePaymentStatus(ctx, rentalID, info.ID, info.Status, info.PaymentTypeID); err != nil {
+		return nil, err
+	}
+	return s.rentalRepo.FindByID(ctx, rentalID)
+}
+
 func (s *rentalService) GetMessages(ctx context.Context, rentalID uuid.UUID, userID uuid.UUID) ([]*rentaldomain.Message, error) {
 	rental, err := s.rentalRepo.FindByID(ctx, rentalID)
 	if err != nil {
