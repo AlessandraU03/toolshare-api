@@ -409,6 +409,40 @@ func (h *RentalHandler) ConfirmPayment(c *gin.Context) {
 	c.JSON(http.StatusOK, ToRentalResponse(rental))
 }
 
+// ReconcilePayment godoc
+// @Summary      Reconciliar el pago de una renta sin payment_id
+// @Description  Busca el pago en Mercado Pago por external_reference y actualiza
+// @Description  el estado. Lo usa la app cuando el redirect del checkout terminó
+// @Description  en el navegador externo y no se pudo interceptar el payment_id.
+// @Tags         rentals
+// @Security     BearerAuth
+// @Param        id path string true "ID de la renta"
+// @Success      200 {object} RentalResponse
+// @Router       /rentals/{id}/reconcile-payment [post]
+func (h *RentalHandler) ReconcilePayment(c *gin.Context) {
+	id, err := shared.ParseUUID(c, "id")
+	if err != nil {
+		return
+	}
+
+	requesterID := sharedmiddleware.UserIDFromContext(c)
+
+	rental, err := h.rentalSvc.ReconcilePayment(c.Request.Context(), id, requesterID)
+	if err != nil {
+		switch {
+		case errors.Is(err, rentalservice.ErrUnauthorized):
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		case errors.Is(err, rentalservice.ErrPaymentFailed):
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		default:
+			shared.HandleServiceErr(c, err)
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, ToRentalResponse(rental))
+}
+
 func (h *RentalHandler) GetMessages(c *gin.Context) {
 	id, err := shared.ParseUUID(c, "id")
 	if err != nil {

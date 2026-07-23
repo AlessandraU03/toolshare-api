@@ -118,6 +118,7 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string,
 			rentals.GET("/:id", h.Rental.GetRental)
 			rentals.POST("/:id/preference", h.Rental.CreatePreference)
 			rentals.POST("/:id/confirm-payment", h.Rental.ConfirmPayment)
+			rentals.POST("/:id/reconcile-payment", h.Rental.ReconcilePayment)
 			rentals.POST("/:id/confirm-delivery", h.Rental.ConfirmDelivery)
 			rentals.POST("/:id/confirm-return", h.Rental.ConfirmReturn)
 			rentals.POST("/:id/dispute", h.Rental.Dispute)
