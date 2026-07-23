@@ -84,6 +84,12 @@ type ToolService interface {
 	PredictCondition(ctx context.Context, filename string, content io.Reader, contentType string) (*PredictConditionOutput, error)
 	AutoValuate(ctx context.Context, name string, scoreCondicion float64, category string, brand string, ageMonths int, precioBaseManual *float64, ticketValidado bool) (*AutoValuateOutput, error)
 	ExtractTicketPrice(ctx context.Context, filename string, content io.Reader, contentType string) (*ExtractTicketPriceOutput, error)
+	// StartTicketPriceJob / GetTicketPriceJob: version asincrona de
+	// ExtractTicketPrice para evitar que una peticion HTTP se quede abierta
+	// tanto tiempo que algun proxy intermedio la corte a medias (ver
+	// ticket_job_store.go).
+	StartTicketPriceJob(filename string, content []byte, contentType string) string
+	GetTicketPriceJob(jobID string) (status string, result *ExtractTicketPriceOutput, errMsg string, found bool)
 
 	// CreateInsurancePreference crea una preferencia de Checkout Pro en MP para
 	// que el propietario pague la prima mensual del seguro de una herramienta.

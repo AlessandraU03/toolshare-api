@@ -104,6 +104,7 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string,
 			owner.POST("/tools/:id/photo", h.Tool.UploadPhoto)
 			owner.POST("/tools/predict-condition", h.Tool.PredictCondition)
 			owner.POST("/tools/extract-ticket-price", h.Tool.ExtractTicketPrice)
+			owner.GET("/tools/extract-ticket-price/:job_id", h.Tool.GetTicketPriceJob)
 			owner.GET("/tools/auto-valuate", h.Tool.AutoValuate)
 			owner.POST("/tools/:id/insurance/preference", h.Tool.CreateInsurancePreference)
 			owner.POST("/tools/:id/insurance/confirm", h.Tool.ConfirmInsurancePayment)

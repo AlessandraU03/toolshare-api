@@ -476,14 +476,14 @@ func (h *ToolHandler) AutoValuate(c *gin.Context) {
 }
 
 // ExtractTicketPrice godoc
-// @Summary      Leer precio de un ticket de compra
-// @Description  Extrae por OCR el monto pagado en una foto de ticket/factura. Es la fuente de precio más confiable para el motor de pricing
+// @Summary      Iniciar lectura de un ticket de compra
+// @Description  Recibe la foto del ticket y arranca el OCR en segundo plano, devolviendo un job_id de inmediato (ver GetTicketPriceJob para el resultado). Asincrono a propósito: el OCR puede tardar decenas de segundos por el arranque en frío del worker de PaddleOCR, y una sola petición HTTP tan larga corre el riesgo de que algún proxy intermedio la corte a medias.
 // @Tags         herramientas
 // @Accept       multipart/form-data
 // @Produce      json
 // @Security     BearerAuth
 // @Param        photo formData file true "Foto del ticket de compra (JPEG/PNG/WEBP/GIF)"
-// @Success      200 {object} ExtractTicketPriceResponse
+// @Success      202 {object} TicketJobStartedResponse
 // @Failure      400 {object} dto.ErrResponse "Archivo inválido o tipo no permitido"
 // @Failure      401 {object} dto.ErrResponse
 // @Failure      413 {object} dto.ErrResponse "Imagen demasiado grande (máx 10 MB)"
@@ -523,19 +523,50 @@ func (h *ToolHandler) ExtractTicketPrice(c *gin.Context) {
 		return
 	}
 
-	fullContent := io.MultiReader(bytes.NewReader(buf[:n]), file)
-	out, err := h.toolSvc.ExtractTicketPrice(c.Request.Context(), header.Filename, fullContent, detectedType)
+	// A diferencia del resto de los endpoints de ML, aquí se lee TODO el
+	// archivo a memoria antes de responder: el io.Reader del multipart deja
+	// de ser válido en cuanto este handler termina, pero el OCR real sigue
+	// corriendo en segundo plano después de eso.
+	restoDelArchivo, err := io.ReadAll(file)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no se pudo leer el archivo"})
+		return
+	}
+	contenidoCompleto := append(buf[:n], restoDelArchivo...)
+
+	jobID := h.toolSvc.StartTicketPriceJob(header.Filename, contenidoCompleto, detectedType)
+	c.JSON(http.StatusAccepted, TicketJobStartedResponse{JobID: jobID})
+}
+
+// GetTicketPriceJob godoc
+// @Summary      Consultar el resultado de un OCR de ticket iniciado
+// @Description  El cliente pregunta cada pocos segundos hasta que status ya no sea "processing"
+// @Tags         herramientas
+// @Produce      json
+// @Security     BearerAuth
+// @Param        job_id path string true "job_id devuelto por POST /tools/extract-ticket-price"
+// @Success      200 {object} TicketJobStatusResponse
+// @Failure      404 {object} dto.ErrResponse "job_id no encontrado (expiró o nunca existió)"
+// @Router       /tools/extract-ticket-price/{job_id} [get]
+func (h *ToolHandler) GetTicketPriceJob(c *gin.Context) {
+	jobID := c.Param("job_id")
+
+	status, result, errMsg, found := h.toolSvc.GetTicketPriceJob(jobID)
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "job no encontrado o expirado"})
 		return
 	}
 
-	c.JSON(http.StatusOK, ExtractTicketPriceResponse{
-		Valid:         out.Valid,
-		DetectedPrice: out.DetectedPrice,
-		Confidence:    out.Confidence,
-		Error:         out.Error,
-	})
+	resp := TicketJobStatusResponse{Status: status, Error: errMsg}
+	if result != nil {
+		resp.Valid = result.Valid
+		resp.DetectedPrice = result.DetectedPrice
+		resp.Confidence = result.Confidence
+		if result.Error != "" {
+			resp.Error = result.Error
+		}
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // CreateInsurancePreference godoc

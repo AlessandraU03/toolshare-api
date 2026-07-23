@@ -39,10 +39,28 @@ type toolService struct {
 	userRepo        userports.UserRepository
 	fileStorage     sharedports.FileStorage
 	paymentProvider sharedports.PaymentProvider
+	ticketJobs      *ticketJobStore
 }
 
 func NewToolService(toolRepo toolports.ToolRepository, toolPhotoRepo toolports.ToolPhotoRepository, userRepo userports.UserRepository, fileStorage sharedports.FileStorage, paymentProvider sharedports.PaymentProvider) toolports.ToolService {
-	return &toolService{toolRepo: toolRepo, toolPhotoRepo: toolPhotoRepo, userRepo: userRepo, fileStorage: fileStorage, paymentProvider: paymentProvider}
+	return &toolService{toolRepo: toolRepo, toolPhotoRepo: toolPhotoRepo, userRepo: userRepo, fileStorage: fileStorage, paymentProvider: paymentProvider, ticketJobs: newTicketJobStore()}
+}
+
+// StartTicketPriceJob recibe los bytes de la foto ya leidos (no un
+// io.Reader del multipart original) y arranca el OCR de fondo, devolviendo
+// un job_id de inmediato en vez de bloquear la peticion HTTP.
+func (s *toolService) StartTicketPriceJob(filename string, content []byte, contentType string) string {
+	return s.ticketJobs.start(s, filename, content, contentType)
+}
+
+// GetTicketPriceJob consulta el estatus de un job de OCR de ticket ya
+// arrancado con StartTicketPriceJob.
+func (s *toolService) GetTicketPriceJob(jobID string) (status string, result *toolports.ExtractTicketPriceOutput, errMsg string, found bool) {
+	job, ok := s.ticketJobs.get(jobID)
+	if !ok {
+		return "", nil, "", false
+	}
+	return string(job.Status), job.Result, job.Error, true
 }
 
 func (s *toolService) Create(ctx context.Context, inp toolports.CreateToolInput) (*tooldomain.Tool, error) {

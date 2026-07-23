@@ -141,6 +141,22 @@ type ExtractTicketPriceResponse struct {
 	Error         string  `json:"error,omitempty"`
 }
 
+// TicketJobStartedResponse: respuesta inmediata de POST /tools/extract-ticket-price.
+type TicketJobStartedResponse struct {
+	JobID string `json:"job_id"`
+}
+
+// TicketJobStatusResponse: respuesta de GET /tools/extract-ticket-price/{job_id}.
+// Status es "processing", "done" o "failed". Valid/DetectedPrice/Confidence
+// solo tienen sentido cuando Status == "done".
+type TicketJobStatusResponse struct {
+	Status        string  `json:"status"`
+	Valid         bool    `json:"valid,omitempty"`
+	DetectedPrice float64 `json:"detected_price,omitempty"`
+	Confidence    string  `json:"confidence,omitempty"`
+	Error         string  `json:"error,omitempty"`
+}
+
 type InsurancePreferenceResponse struct {
 	InitPoint    string `json:"init_point"`
 	PreferenceID string `json:"preference_id"`
