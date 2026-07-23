@@ -38,9 +38,7 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string,
 	// el WebView intercepta la navegación hacia aquí antes de que complete;
 	// esta ruta es solo un respaldo por si el redirect automático de MP la
 	// alcanza a cargar primero.
-	r.GET("/payment/:status", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": c.Param("status"), "message": "Puedes cerrar esta ventana y volver a la app."})
-	})
+	r.GET("/payment/:status", h.Webhook.PaymentReturn)
 
 	// Config pública y segura de exponer al cliente (nunca la clave secreta de MP).
 	r.GET("/api/config", func(c *gin.Context) {
