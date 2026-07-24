@@ -145,8 +145,8 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string,
 		{
 			admin.GET("/stats", h.Admin.GetStats)
 			admin.GET("/rentals", h.Admin.ListRentals)
+			admin.GET("/rentals/:id/insurance-claim", h.Admin.GetInsuranceClaim)
 			admin.POST("/rentals/:id/resolve", h.Admin.ResolveDispute)
-			admin.GET("/rentals/:id/bank-account", h.Admin.GetInsuranceClaim)
 
 			admin.GET("/support/threads", h.Support.ListThreads)
 			admin.GET("/support/threads/:ownerId/messages", h.Support.GetThreadMessages)

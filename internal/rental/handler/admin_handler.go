@@ -84,17 +84,16 @@ func (h *AdminHandler) ResolveDispute(c *gin.Context) {
 }
 
 // GetInsuranceClaim godoc
-// @Summary Consultar el monto de seguro y los datos bancarios del propietario de una renta
-// @Description A diferencia de la respuesta de /resolve (que solo se ve una vez), este endpoint se puede llamar cuantas veces haga falta para volver a consultar los datos bancarios de una disputa ya resuelta a favor del propietario
+// @Summary Consultar el pago de seguro pendiente al propietario de una renta
+// @Description Devuelve el monto y los datos bancarios del propietario para la transferencia manual del seguro. Consultable en cualquier momento (persistente), no solo al dictaminar.
 // @Tags admin
 // @Produce json
 // @Param id path string true "ID del Alquiler"
 // @Security BearerAuth
 // @Success 200 {object} InsuranceClaimResponse
-// @Router /admin/rentals/{id}/bank-account [get]
+// @Router /admin/rentals/{id}/insurance-claim [get]
 func (h *AdminHandler) GetInsuranceClaim(c *gin.Context) {
-	idStr := c.Param("id")
-	rentalID, err := uuid.Parse(idStr)
+	rentalID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de alquiler inválido"})
 		return
@@ -105,5 +104,8 @@ func (h *AdminHandler) GetInsuranceClaim(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, ToInsuranceClaimResponse(claim))
+
+	// Se responde con la misma forma que el dictamen ({insurance_claim: {...}})
+	// para reutilizar el mismo parseo en la app. Es null si no hay seguro.
+	c.JSON(http.StatusOK, gin.H{"insurance_claim": ToInsuranceClaimResponse(claim)})
 }

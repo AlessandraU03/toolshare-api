@@ -109,42 +109,44 @@ func (s *adminService) ResolveDispute(ctx context.Context, inp rentalports.Resol
 	// administrador el monto y los datos bancarios del propietario para que
 	// haga la transferencia manual.
 	if inp.Action == "capture" {
-		claim, claimErr := s.GetInsuranceClaim(ctx, updated.ID)
-		if claimErr != nil {
-			log.Printf("WARN [Admin]: no se pudo calcular el reclamo de seguro para la renta %s: %v", updated.ID, claimErr)
-		} else if claim.Amount > 0 {
-			out.InsuranceClaim = claim
-		}
+		out.InsuranceClaim = s.buildInsuranceClaim(ctx, updated.ToolID, updated.OwnerID)
 	}
 
 	return out, nil
 }
 
-// GetInsuranceClaim recalcula lo que el seguro ToolShare le cubre al
-// propietario de una renta (30% del valor estimado de la herramienta si
-// tiene el seguro activo) junto con sus datos bancarios registrados. A
-// diferencia del InsuranceClaim que devuelve ResolveDispute (que solo se ve
-// una vez, en la respuesta de esa llamada), este método se puede invocar las
-// veces que el administrador necesite para volver a consultar esos datos.
+// buildInsuranceClaim calcula el pago del seguro que le corresponde al
+// propietario (un % del valor estimado si la herramienta tiene seguro activo)
+// y adjunta sus datos bancarios registrados para la transferencia manual.
+// Devuelve nil si la herramienta no tiene seguro activo. Se comparte entre el
+// dictamen (ResolveDispute) y la consulta posterior (GetInsuranceClaim), para
+// que el admin pueda ver estos datos de forma persistente y no solo una vez.
+func (s *adminService) buildInsuranceClaim(ctx context.Context, toolID, ownerID uuid.UUID) *rentalports.InsuranceClaimOutput {
+	tool, err := s.toolRepo.FindByID(ctx, toolID)
+	if err != nil {
+		log.Printf("WARN [Admin]: no se pudo consultar herramienta %s para calcular seguro: %v", toolID, err)
+		return nil
+	}
+	claim := tool.CalculateInsuranceClaim()
+	if claim <= 0 {
+		return nil
+	}
+	bankAccount, bankErr := s.userRepo.GetBankAccount(ctx, ownerID)
+	if bankErr != nil {
+		log.Printf("WARN [Admin]: no se pudo consultar datos bancarios del propietario %s: %v", ownerID, bankErr)
+	}
+	return &rentalports.InsuranceClaimOutput{Amount: claim, BankAccount: bankAccount}
+}
+
+// GetInsuranceClaim devuelve, de forma persistente, cuánto le debe el seguro
+// al propietario de una renta y sus datos bancarios. Es lo que consulta el
+// panel de admin para volver a ver esos datos después de dictaminar (antes
+// solo se mostraban una vez al resolver la disputa). Devuelve nil si la
+// herramienta no tenía seguro activo.
 func (s *adminService) GetInsuranceClaim(ctx context.Context, rentalID uuid.UUID) (*rentalports.InsuranceClaimOutput, error) {
 	rental, err := s.rentalRepo.FindByID(ctx, rentalID)
 	if err != nil {
 		return nil, err
 	}
-
-	tool, err := s.toolRepo.FindByID(ctx, rental.ToolID)
-	if err != nil {
-		return nil, err
-	}
-
-	claim := tool.CalculateInsuranceClaim()
-	bankAccount, bankErr := s.userRepo.GetBankAccount(ctx, rental.OwnerID)
-	if bankErr != nil {
-		log.Printf("WARN [Admin]: no se pudo consultar datos bancarios del propietario %s: %v", rental.OwnerID, bankErr)
-	}
-
-	return &rentalports.InsuranceClaimOutput{
-		Amount:      claim,
-		BankAccount: bankAccount,
-	}, nil
+	return s.buildInsuranceClaim(ctx, rental.ToolID, rental.OwnerID), nil
 }
