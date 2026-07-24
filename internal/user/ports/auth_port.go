@@ -69,4 +69,6 @@ type AuthService interface {
 	SaveBankAccount(ctx context.Context, userID uuid.UUID, account userdomain.BankAccount) error
 	// GetBankAccount devuelve los datos bancarios registrados del propietario.
 	GetBankAccount(ctx context.Context, userID uuid.UUID) (*userdomain.BankAccount, error)
+	// DeleteBankAccount borra los datos bancarios registrados del propietario.
+	DeleteBankAccount(ctx context.Context, userID uuid.UUID) error
 }

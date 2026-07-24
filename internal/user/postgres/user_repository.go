@@ -193,6 +193,20 @@ func (r *UserRepository) SaveBankAccount(ctx context.Context, id uuid.UUID, acco
 	return nil
 }
 
+// DeleteBankAccount borra los datos bancarios registrados del propietario.
+func (r *UserRepository) DeleteBankAccount(ctx context.Context, id uuid.UUID) error {
+	tag, err := r.db.Exec(ctx,
+		`UPDATE users SET bank_clabe = NULL, bank_account_holder = NULL, bank_name = NULL, updated_at = now()
+		 WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("eliminar datos bancarios: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
 func (r *UserRepository) SaveCard(ctx context.Context, card *userdomain.SavedCard) (*userdomain.SavedCard, error) {
 	query := `
 		INSERT INTO saved_cards (user_id, mp_card_id, card_brand, last_four_digits, expiration_month, expiration_year)

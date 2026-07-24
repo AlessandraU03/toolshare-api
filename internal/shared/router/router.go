@@ -6,6 +6,7 @@ import (
 	reviewhandler "github.com/yourusername/tool-inventory-api/internal/review/handler"
 	sharedmiddleware "github.com/yourusername/tool-inventory-api/internal/shared/middleware"
 	sharedports "github.com/yourusername/tool-inventory-api/internal/shared/ports"
+	supporthandler "github.com/yourusername/tool-inventory-api/internal/support/handler"
 	toolhandler "github.com/yourusername/tool-inventory-api/internal/tool/handler"
 	userdomain "github.com/yourusername/tool-inventory-api/internal/user/domain"
 	userhandler "github.com/yourusername/tool-inventory-api/internal/user/handler"
@@ -20,6 +21,7 @@ type Handlers struct {
 	Webhook *rentalhandler.WebhookHandler
 	Admin   *rentalhandler.AdminHandler
 	Review  *reviewhandler.ReviewHandler
+	Support *supporthandler.SupportHandler
 }
 
 func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string, mockPaymentMode bool) *gin.Engine {
@@ -84,6 +86,7 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string,
 		protected.GET("/auth/me", h.Auth.Me)
 		protected.GET("/auth/bank-account", h.Auth.GetBankAccount)
 		protected.PUT("/auth/bank-account", h.Auth.SaveBankAccount)
+		protected.DELETE("/auth/bank-account", h.Auth.DeleteBankAccount)
 		protected.POST("/auth/subscribe/preference", h.Auth.SubscribePreference)
 		protected.POST("/auth/subscribe/confirm", h.Auth.ConfirmSubscription)
 		protected.POST("/auth/cards", h.Auth.AddCard)
@@ -111,6 +114,9 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string,
 			owner.POST("/tools/:id/insurance/confirm", h.Tool.ConfirmInsurancePayment)
 			owner.POST("/tools/:id/insurance/reconcile", h.Tool.ReconcileInsurance)
 			owner.POST("/tools/:id/insurance/cancel", h.Tool.CancelInsurance)
+
+			owner.GET("/support/messages", h.Support.GetMyMessages)
+			owner.POST("/support/messages", h.Support.SendMyMessage)
 		}
 
 		// Rentas
@@ -140,6 +146,11 @@ func New(h Handlers, tokenProvider sharedports.TokenProvider, uploadsDir string,
 			admin.GET("/stats", h.Admin.GetStats)
 			admin.GET("/rentals", h.Admin.ListRentals)
 			admin.POST("/rentals/:id/resolve", h.Admin.ResolveDispute)
+			admin.GET("/rentals/:id/bank-account", h.Admin.GetInsuranceClaim)
+
+			admin.GET("/support/threads", h.Support.ListThreads)
+			admin.GET("/support/threads/:ownerId/messages", h.Support.GetThreadMessages)
+			admin.POST("/support/threads/:ownerId/messages", h.Support.SendThreadMessage)
 		}
 	}
 

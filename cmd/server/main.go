@@ -36,6 +36,9 @@ import (
 	"github.com/yourusername/tool-inventory-api/internal/shared/ports"
 	"github.com/yourusername/tool-inventory-api/internal/shared/router"
 	"github.com/yourusername/tool-inventory-api/internal/shared/storage"
+	supporthandler "github.com/yourusername/tool-inventory-api/internal/support/handler"
+	supportpostgres "github.com/yourusername/tool-inventory-api/internal/support/postgres"
+	supportservice "github.com/yourusername/tool-inventory-api/internal/support/service"
 	toolhandler "github.com/yourusername/tool-inventory-api/internal/tool/handler"
 	toolpostgres "github.com/yourusername/tool-inventory-api/internal/tool/postgres"
 	toolservice "github.com/yourusername/tool-inventory-api/internal/tool/service"
@@ -109,6 +112,7 @@ func main() {
 	toolPhotoRepo := toolpostgres.NewToolPhotoRepository(database.DB)
 	rentalRepo := rentalpostgres.NewRentalRepository(database.DB)
 	reviewRepo := reviewpostgres.NewReviewRepository(database.DB)
+	supportRepo := supportpostgres.NewSupportRepository(database.DB)
 
 	// ── Servicios ──────────────────────────────────────────────────────────────
 	authSvc := userservice.NewAuthService(userRepo, tokenProvider, paymentProvider)
@@ -116,6 +120,7 @@ func main() {
 	rentalSvc := rentalservice.NewRentalService(rentalRepo, toolRepo, userRepo, paymentProvider)
 	adminSvc := rentalservice.NewAdminService(rentalRepo, toolRepo, userRepo, paymentProvider)
 	reviewSvc := reviewservice.NewReviewService(reviewRepo, rentalRepo)
+	supportSvc := supportservice.NewSupportService(supportRepo, userRepo)
 
 	// Sembrar usuario admin si no existe
 	_, _ = authSvc.Register(context.Background(), userports.RegisterInput{
@@ -135,6 +140,7 @@ func main() {
 		Webhook: rentalhandler.NewWebhookHandler(rentalSvc, userRepo, paymentProvider, os.Getenv("MP_WEBHOOK_SECRET")),
 		Admin:   rentalhandler.NewAdminHandler(adminSvc),
 		Review:  reviewhandler.NewReviewHandler(reviewSvc),
+		Support: supporthandler.NewSupportHandler(supportSvc),
 	}
 
 	if os.Getenv("GIN_MODE") == "release" {

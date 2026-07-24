@@ -42,4 +42,8 @@ type AdminService interface {
 	GetStats(ctx context.Context) (*AdminStatsOutput, error)
 	ListRentals(ctx context.Context, status string) ([]*rentaldomain.Rental, error)
 	ResolveDispute(ctx context.Context, inp ResolveDisputeInput) (*ResolveDisputeOutput, error)
+	// GetInsuranceClaim recalcula el monto de seguro y los datos bancarios del
+	// propietario de una renta, para poder consultarlos las veces que haga
+	// falta (no solo una vez, como devuelve ResolveDispute).
+	GetInsuranceClaim(ctx context.Context, rentalID uuid.UUID) (*InsuranceClaimOutput, error)
 }

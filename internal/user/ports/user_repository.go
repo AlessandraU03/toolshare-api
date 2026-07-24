@@ -33,4 +33,6 @@ type UserRepository interface {
 	GetBankAccount(ctx context.Context, id uuid.UUID) (*userdomain.BankAccount, error)
 	// SaveBankAccount guarda/actualiza esos datos bancarios.
 	SaveBankAccount(ctx context.Context, id uuid.UUID, account userdomain.BankAccount) error
+	// DeleteBankAccount borra los datos bancarios registrados del propietario.
+	DeleteBankAccount(ctx context.Context, id uuid.UUID) error
 }

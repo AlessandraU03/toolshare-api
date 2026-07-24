@@ -245,6 +245,31 @@ func (h *AuthHandler) GetBankAccount(c *gin.Context) {
 	c.JSON(http.StatusOK, ToBankAccountResponse(account))
 }
 
+// DeleteBankAccount godoc
+// @Summary      Eliminar datos bancarios
+// @Description  Borra la CLABE, titular y banco registrados por el propietario
+// @Tags         auth
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200 {object} dto.MsgResponse
+// @Failure      401 {object} dto.ErrResponse
+// @Failure      404 {object} dto.ErrResponse
+// @Router       /auth/bank-account [delete]
+func (h *AuthHandler) DeleteBankAccount(c *gin.Context) {
+	userID := sharedmiddleware.UserIDFromContext(c)
+
+	if err := h.authSvc.DeleteBankAccount(c.Request.Context(), userID); err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "usuario no encontrado"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "error al eliminar los datos bancarios"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "datos bancarios eliminados correctamente"})
+}
+
 // AddCard godoc
 // @Summary      Guardar tarjeta
 // @Description  Guarda una tarjeta a partir de un card_token tokenizado en el cliente contra la API pública de Mercado Pago (POST /v1/card_tokens)

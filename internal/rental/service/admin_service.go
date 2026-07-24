@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 
+	"github.com/google/uuid"
 	rentaldomain "github.com/yourusername/tool-inventory-api/internal/rental/domain"
 	rentalports "github.com/yourusername/tool-inventory-api/internal/rental/ports"
 	sharedports "github.com/yourusername/tool-inventory-api/internal/shared/ports"
@@ -108,20 +109,42 @@ func (s *adminService) ResolveDispute(ctx context.Context, inp rentalports.Resol
 	// administrador el monto y los datos bancarios del propietario para que
 	// haga la transferencia manual.
 	if inp.Action == "capture" {
-		tool, toolErr := s.toolRepo.FindByID(ctx, updated.ToolID)
-		if toolErr != nil {
-			log.Printf("WARN [Admin]: no se pudo consultar herramienta %s para calcular seguro: %v", updated.ToolID, toolErr)
-		} else if claim := tool.CalculateInsuranceClaim(); claim > 0 {
-			bankAccount, bankErr := s.userRepo.GetBankAccount(ctx, updated.OwnerID)
-			if bankErr != nil {
-				log.Printf("WARN [Admin]: no se pudo consultar datos bancarios del propietario %s: %v", updated.OwnerID, bankErr)
-			}
-			out.InsuranceClaim = &rentalports.InsuranceClaimOutput{
-				Amount:      claim,
-				BankAccount: bankAccount,
-			}
+		claim, claimErr := s.GetInsuranceClaim(ctx, updated.ID)
+		if claimErr != nil {
+			log.Printf("WARN [Admin]: no se pudo calcular el reclamo de seguro para la renta %s: %v", updated.ID, claimErr)
+		} else if claim.Amount > 0 {
+			out.InsuranceClaim = claim
 		}
 	}
 
 	return out, nil
+}
+
+// GetInsuranceClaim recalcula lo que el seguro ToolShare le cubre al
+// propietario de una renta (30% del valor estimado de la herramienta si
+// tiene el seguro activo) junto con sus datos bancarios registrados. A
+// diferencia del InsuranceClaim que devuelve ResolveDispute (que solo se ve
+// una vez, en la respuesta de esa llamada), este método se puede invocar las
+// veces que el administrador necesite para volver a consultar esos datos.
+func (s *adminService) GetInsuranceClaim(ctx context.Context, rentalID uuid.UUID) (*rentalports.InsuranceClaimOutput, error) {
+	rental, err := s.rentalRepo.FindByID(ctx, rentalID)
+	if err != nil {
+		return nil, err
+	}
+
+	tool, err := s.toolRepo.FindByID(ctx, rental.ToolID)
+	if err != nil {
+		return nil, err
+	}
+
+	claim := tool.CalculateInsuranceClaim()
+	bankAccount, bankErr := s.userRepo.GetBankAccount(ctx, rental.OwnerID)
+	if bankErr != nil {
+		log.Printf("WARN [Admin]: no se pudo consultar datos bancarios del propietario %s: %v", rental.OwnerID, bankErr)
+	}
+
+	return &rentalports.InsuranceClaimOutput{
+		Amount:      claim,
+		BankAccount: bankAccount,
+	}, nil
 }

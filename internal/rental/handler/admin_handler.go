@@ -82,3 +82,28 @@ func (h *AdminHandler) ResolveDispute(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, ToResolveDisputeResponse(resolved))
 }
+
+// GetInsuranceClaim godoc
+// @Summary Consultar el monto de seguro y los datos bancarios del propietario de una renta
+// @Description A diferencia de la respuesta de /resolve (que solo se ve una vez), este endpoint se puede llamar cuantas veces haga falta para volver a consultar los datos bancarios de una disputa ya resuelta a favor del propietario
+// @Tags admin
+// @Produce json
+// @Param id path string true "ID del Alquiler"
+// @Security BearerAuth
+// @Success 200 {object} InsuranceClaimResponse
+// @Router /admin/rentals/{id}/bank-account [get]
+func (h *AdminHandler) GetInsuranceClaim(c *gin.Context) {
+	idStr := c.Param("id")
+	rentalID, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de alquiler inválido"})
+		return
+	}
+
+	claim, err := h.svc.GetInsuranceClaim(c.Request.Context(), rentalID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, ToInsuranceClaimResponse(claim))
+}

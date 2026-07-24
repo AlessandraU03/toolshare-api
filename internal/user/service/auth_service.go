@@ -188,6 +188,11 @@ func (s *authService) GetBankAccount(ctx context.Context, userID uuid.UUID) (*us
 	return s.userRepo.GetBankAccount(ctx, userID)
 }
 
+// DeleteBankAccount borra los datos bancarios registrados del propietario.
+func (s *authService) DeleteBankAccount(ctx context.Context, userID uuid.UUID) error {
+	return s.userRepo.DeleteBankAccount(ctx, userID)
+}
+
 // ConfirmSubscriptionPayment consulta directamente a MP el estado de un pago (sin depender
 // del webhook, útil cuando el backend no es alcanzable públicamente) y activa el plan Pro
 // si el pago está aprobado y pertenece a este mismo usuario.

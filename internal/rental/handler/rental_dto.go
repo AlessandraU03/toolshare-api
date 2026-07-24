@@ -140,14 +140,19 @@ func ToResolveDisputeResponse(out *rentalports.ResolveDisputeOutput) ResolveDisp
 	if out.InsuranceClaim == nil {
 		return resp
 	}
-	claim := &InsuranceClaimResponse{Amount: out.InsuranceClaim.Amount}
-	if acc := out.InsuranceClaim.BankAccount; acc != nil {
-		claim.BankCLABE = acc.CLABE
-		claim.BankAccountHolder = acc.AccountHolder
-		claim.BankName = acc.BankName
-		claim.BankAccountRegistered = acc.HasBankAccount()
+	claim := ToInsuranceClaimResponse(out.InsuranceClaim)
+	resp.InsuranceClaim = &claim
+	return resp
+}
+
+func ToInsuranceClaimResponse(claim *rentalports.InsuranceClaimOutput) InsuranceClaimResponse {
+	resp := InsuranceClaimResponse{Amount: claim.Amount}
+	if acc := claim.BankAccount; acc != nil {
+		resp.BankCLABE = acc.CLABE
+		resp.BankAccountHolder = acc.AccountHolder
+		resp.BankName = acc.BankName
+		resp.BankAccountRegistered = acc.HasBankAccount()
 	}
-	resp.InsuranceClaim = claim
 	return resp
 }
 
