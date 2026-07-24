@@ -42,4 +42,8 @@ type AdminService interface {
 	GetStats(ctx context.Context) (*AdminStatsOutput, error)
 	ListRentals(ctx context.Context, status string) ([]*rentaldomain.Rental, error)
 	ResolveDispute(ctx context.Context, inp ResolveDisputeInput) (*ResolveDisputeOutput, error)
+	// GetInsuranceClaim devuelve el pago de seguro pendiente al propietario y
+	// sus datos bancarios, de forma consultable en cualquier momento (no solo
+	// al dictaminar). nil si la herramienta no tenía seguro activo.
+	GetInsuranceClaim(ctx context.Context, rentalID uuid.UUID) (*InsuranceClaimOutput, error)
 }

@@ -137,18 +137,24 @@ type ResolveDisputeResponse struct {
 
 func ToResolveDisputeResponse(out *rentalports.ResolveDisputeOutput) ResolveDisputeResponse {
 	resp := ResolveDisputeResponse{Rental: ToRentalResponse(out.Rental)}
-	if out.InsuranceClaim == nil {
-		return resp
+	resp.InsuranceClaim = ToInsuranceClaimResponse(out.InsuranceClaim)
+	return resp
+}
+
+// ToInsuranceClaimResponse mapea el claim del seguro a su DTO. Devuelve nil si
+// no hay claim (herramienta sin seguro activo), para que el campo se omita.
+func ToInsuranceClaimResponse(out *rentalports.InsuranceClaimOutput) *InsuranceClaimResponse {
+	if out == nil {
+		return nil
 	}
-	claim := &InsuranceClaimResponse{Amount: out.InsuranceClaim.Amount}
-	if acc := out.InsuranceClaim.BankAccount; acc != nil {
+	claim := &InsuranceClaimResponse{Amount: out.Amount}
+	if acc := out.BankAccount; acc != nil {
 		claim.BankCLABE = acc.CLABE
 		claim.BankAccountHolder = acc.AccountHolder
 		claim.BankName = acc.BankName
 		claim.BankAccountRegistered = acc.HasBankAccount()
 	}
-	resp.InsuranceClaim = claim
-	return resp
+	return claim
 }
 
 type ConfirmPaymentRequest struct {
